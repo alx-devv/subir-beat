@@ -1,0 +1,125 @@
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+const KEYRING_SERVICE: &str = "subir-beat";
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
+pub struct Settings {
+    // Shopify
+    pub shop_domain: String,
+    pub shop_client_id: String,
+    pub store_url: String,
+    pub vendor: String,
+    pub price_premium: String,
+    pub price_exclusiva: String,
+    // R2
+    pub r2_account_id: String,
+    pub r2_access_key_id: String,
+    pub r2_bucket: String,
+    pub public_base: String,
+    // Local
+    pub output_dir: String,
+    pub keep_zips: bool,
+    // Web gif
+    pub gif_size: u32,
+    pub gif_fps: u32,
+    pub gif_max_secs: u32,
+    // YouTube
+    pub yt_title: String,
+    pub yt_description: String,
+    pub yt_tags: String,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        let output_dir = dirs_videos().join("Beats subidos").to_string_lossy().to_string();
+        Self {
+            shop_domain: "pc1swd-9c.myshopify.com".into(),
+            shop_client_id: String::new(),
+            store_url: "https://alexgareis.com".into(),
+            vendor: "Mi tienda".into(),
+            price_premium: "49".into(),
+            price_exclusiva: "125".into(),
+            r2_account_id: String::new(),
+            r2_access_key_id: String::new(),
+            r2_bucket: "beats-entregables".into(),
+            public_base: "https://dl.alexgareis.com".into(),
+            output_dir,
+            keep_zips: false,
+            gif_size: 600,
+            gif_fps: 15,
+            gif_max_secs: 8,
+            yt_title: "{artista} Type Beat - \"{nombre}\"".into(),
+            yt_description: DEFAULT_DESCRIPTION.into(),
+            yt_tags: "{artista} type beat, {artista} instrumental, {genero} type beat, {genero} beat, beat {mood}, instrumental {genero}, prod alex gareis, alex gareis".into(),
+        }
+    }
+}
+
+const DEFAULT_DESCRIPTION: &str = "🎧 Licencia este beat: {link}
+
+\"{nombre}\" · {bpm} BPM · {key}
+Prod. Alex Gareis
+
+Soy Alex, productor. Si grabas sobre este beat, mándame la canción: me encanta escuchar lo que hacen los artistas con mis beats.
+
+💿 Licencias
+• WAV Premium — ${premium} USD
+• WAV + STEMS Exclusiva — ${exclusiva} USD (el beat sale de la tienda)
+
+🎚️ Mezcla, mastering y beats a medida: {tienda}
+📲 Instagram: https://instagram.com/alexgareis
+
+⚠️ Este beat no es de uso libre. Para publicar una canción con él hace falta una licencia.
+
+#typebeat #instrumental #{artista_tag}typebeat";
+
+fn dirs_videos() -> PathBuf {
+    if let Some(p) = std::env::var_os("USERPROFILE") {
+        return PathBuf::from(p).join("Videos");
+    }
+    if let Some(p) = std::env::var_os("HOME") {
+        return PathBuf::from(p).join("Videos");
+    }
+    PathBuf::from(".")
+}
+
+pub fn settings_path(config_dir: &PathBuf) -> PathBuf {
+    config_dir.join("ajustes.json")
+}
+
+pub fn load(config_dir: &PathBuf) -> Settings {
+    std::fs::read_to_string(settings_path(config_dir))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+pub fn save(config_dir: &PathBuf, s: &Settings) -> anyhow::Result<()> {
+    std::fs::create_dir_all(config_dir)?;
+    std::fs::write(settings_path(config_dir), serde_json::to_string_pretty(s)?)?;
+    Ok(())
+}
+
+// Secretos: guardados en el Administrador de credenciales de Windows.
+pub const SECRET_SHOPIFY: &str = "shopify_client_secret";
+pub const SECRET_R2: &str = "r2_secret_access_key";
+
+pub fn get_secret(name: &str) -> Option<String> {
+    keyring::Entry::new(KEYRING_SERVICE, name)
+        .ok()?
+        .get_password()
+        .ok()
+        .filter(|s| !s.is_empty())
+}
+
+pub fn set_secret(name: &str, value: &str) -> anyhow::Result<()> {
+    let e = keyring::Entry::new(KEYRING_SERVICE, name)?;
+    if value.is_empty() {
+        let _ = e.delete_credential();
+    } else {
+        e.set_password(value)?;
+    }
+    Ok(())
+}

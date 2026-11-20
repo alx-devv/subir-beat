@@ -1,0 +1,43 @@
+[package]
+name = "subir-beat"
+version = "1.0.0"
+description = "Subir un beat de punta a punta: bucket, Shopify y YouTube"
+authors = ["Alex Gareis"]
+edition = "2021"
+
+[lib]
+name = "subir_beat_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-clipboard-manager = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "fs", "io-util", "sync", "time"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream"] }
+rusty-s3 = "0.7"
+zip = { version = "2", default-features = false }
+imagesize = "0.13"
+anyhow = "1"
+percent-encoding = "2"
+futures = "0.3"
+url = "2"
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(not(windows))'.dependencies]
+keyring = { version = "3" }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
