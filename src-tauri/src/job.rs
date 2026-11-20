@@ -271,6 +271,14 @@ async fn run_inner(ctx: Arc<Ctx>, settings: Settings) -> Result<()> {
         }
     }
 
+    // El Léeme manda a la página de descargas: tiene que existir.
+    if !settings.downloads_url.trim().is_empty() {
+        let ok = http.get(settings.downloads_url.trim()).send().await.map(|r| r.status().is_success()).unwrap_or(false);
+        if !ok {
+            bail!("La página de descargas ({}) no responde. Revisala en Ajustes.", settings.downloads_url.trim());
+        }
+    }
+
     let names = naming::names(&input.name, input.bpm, &input.key);
 
     // El video corre en paralelo: la CPU renderiza mientras la red sube.
@@ -334,7 +342,7 @@ fn collect_stems(dir: &Path) -> Result<Vec<(PathBuf, String)>> {
 }
 
 /// Zip sin compresión (el audio no se comprime y así es mucho más rápido).
-fn build_zip(dest: &Path, entries: &[(PathBuf, String)], on_bytes: &dyn Fn(u64)) -> Result<()> {
+fn build_zip(dest: &Path, entries: &[(PathBuf, String)], text: Option<(&str, &[u8])>, on_bytes: &dyn Fn(u64)) -> Result<()> {
     let tmp = dest.with_extension("zip.part");
     let file = std::fs::File::create(&tmp)?;
     let mut zip = zip::ZipWriter::new(std::io::BufWriter::with_capacity(4 << 20, file));
@@ -343,6 +351,10 @@ fn build_zip(dest: &Path, entries: &[(PathBuf, String)], on_bytes: &dyn Fn(u64))
         .large_file(true);
     let mut buf = vec![0u8; 4 << 20];
     let mut total = 0u64;
+    if let Some((name, bytes)) = text {
+        zip.start_file(name, opts)?;
+        zip.write_all(bytes)?;
+    }
     for (src, name) in entries {
         zip.start_file(name.as_str(), opts)?;
         let mut f = std::fs::File::open(src).with_context(|| format!("No se pudo abrir {}", src.display()))?;
@@ -357,6 +369,19 @@ fn build_zip(dest: &Path, entries: &[(PathBuf, String)], on_bytes: &dyn Fn(u64))
     zip.finish()?.flush()?;
     std::fs::rename(&tmp, dest)?;
     Ok(())
+}
+
+/// Texto del Léeme: UTF-8 con BOM y saltos de línea de Windows, para que el Bloc de notas muestre bien los acentos.
+fn readme_bytes(template: &str, input: &BeatInput, settings: &Settings) -> Vec<u8> {
+    let shown = settings.downloads_url.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/');
+    let text = template
+        .replace("{nombre}", input.name.trim())
+        .replace("{descargas}", shown)
+        .replace("\r\n", "\n")
+        .replace('\n', "\r\n");
+    let mut out = vec![0xEF, 0xBB, 0xBF];
+    out.extend_from_slice(text.as_bytes());
+    out
 }
 
 async fn step_files_and_bucket(
@@ -383,12 +408,14 @@ async fn step_files_and_bucket(
             let wav_size = std::fs::metadata(&wav)?.len();
             let total: u64 = wav_size + excl_entries.iter().map(|(p, _)| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0)).sum::<u64>();
 
+            let readme_p = readme_bytes(&settings.readme_premium, input, settings);
+            let readme_e = readme_bytes(&settings.readme_exclusiva, input, settings);
             let c = ctx.clone();
             let (p, e) = (premium.clone(), exclusiva.clone());
             tokio::task::spawn_blocking(move || -> Result<()> {
                 let report = |done: u64| c.progress("archivos", "Armando los zips", done as f64 / total.max(1) as f64);
-                build_zip(&p, &wav_entry, &report)?;
-                build_zip(&e, &excl_entries, &|d| report(wav_size + d))?;
+                build_zip(&p, &wav_entry, Some(("Léeme.txt", &readme_p)), &report)?;
+                build_zip(&e, &excl_entries, Some(("Léeme.txt", &readme_e)), &|d| report(wav_size + d))?;
                 Ok(())
             })
             .await??;
@@ -716,5 +743,26 @@ mod tests {
         assert_eq!(clean_tags("a, A , b,, {x}, c"), "a, b, c");
         assert_eq!(price_label("49.50"), "49.50");
         assert_eq!(price("49").unwrap(), "49.00");
+    }
+
+    #[test]
+    fn zip_con_leeme() {
+        let dir = std::env::temp_dir().join("zip_leeme");
+        std::fs::create_dir_all(&dir).unwrap();
+        let wav = dir.join("a.wav");
+        std::fs::write(&wav, b"RIFFdata").unwrap();
+        let input = BeatInput { name: "turn it up".into(), ..Default::default() };
+        let s = Settings::default();
+        let readme = readme_bytes(&s.readme_exclusiva, &input, &s);
+        let dest = dir.join("x.zip");
+        build_zip(&dest, &[(wav, "beat.wav".into())], Some(("Léeme.txt", &readme)), &|_| {}).unwrap();
+        let mut z = zip::ZipArchive::new(std::fs::File::open(&dest).unwrap()).unwrap();
+        let mut txt = String::new();
+        std::io::Read::read_to_string(&mut z.by_name("Léeme.txt").unwrap(), &mut txt).unwrap();
+        assert!(txt.starts_with('\u{feff}'));
+        assert!(txt.contains("\"turn it up\"") && txt.contains("alexgareis.com/pages/descargas") && txt.contains("\r\n"));
+        assert!(!txt.contains("{nombre}"));
+        assert!(z.by_name("beat.wav").is_ok());
+        println!("{txt}");
     }
 }

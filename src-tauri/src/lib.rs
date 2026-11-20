@@ -1,3 +1,4 @@
+mod analysis;
 mod config;
 mod job;
 mod media;
@@ -125,6 +126,9 @@ struct Preview {
     premium: String,
     exclusiva: String,
     title: String,
+    description: String,
+    tags: String,
+    product_url: String,
 }
 
 /// Vista previa de nombres y título mientras se completa el formulario.
@@ -132,13 +136,19 @@ struct Preview {
 fn preview(app: AppHandle, input: BeatInput) -> Preview {
     let s = config::load(&config_dir(&app));
     let n = naming::names(&input.name, input.bpm, &input.key);
+    let handle = naming::handle(&input.name);
+    let product_url = format!("{}/products/{}", s.store_url.trim_end_matches('/'), handle);
+    let store = s.store_url.trim_end_matches('/');
     Preview {
-        handle: naming::handle(&input.name),
         folder: n.folder,
         mp3: n.mp3,
         premium: n.premium,
         exclusiva: n.exclusiva,
-        title: job::fill(&s.yt_title, &input, "", &s.store_url),
+        title: job::fill(&s.yt_title, &input, &product_url, store),
+        description: job::fill(&s.yt_description, &input, &product_url, store),
+        tags: job::clean_tags(&job::fill(&s.yt_tags, &input, &product_url, store)),
+        product_url,
+        handle,
     }
 }
 
@@ -174,6 +184,30 @@ fn spawn(app: AppHandle, j: Job) {
     tauri::async_runtime::spawn(async move {
         let _ = job::run(app, d, c, j).await;
     });
+}
+
+#[derive(Serialize)]
+struct Detected {
+    from_name: analysis::FromName,
+    audio: Option<analysis::FromAudio>,
+    audio_error: Option<String>,
+}
+
+/// Lee nombre, BPM y tonalidad del nombre del WAV y analiza el audio igual, para comparar.
+#[tauri::command]
+async fn detect_wav(path: String) -> Detected {
+    let p = PathBuf::from(&path);
+    let from_name = analysis::from_filename(&p);
+    match analysis::analyze(&p).await {
+        Ok(a) => Detected { from_name, audio: Some(a), audio_error: None },
+        Err(e) => Detected { from_name, audio: None, audio_error: Some(format!("{e:#}")) },
+    }
+}
+
+/// Duración en segundos (para la vista previa de YouTube).
+#[tauri::command]
+async fn media_duration(path: String) -> Option<f64> {
+    media::duration_secs(std::path::Path::new(&path)).await.ok()
 }
 
 #[derive(Serialize)]
@@ -261,7 +295,9 @@ pub fn run() {
             retry_job,
             list_jobs,
             forget_job,
-            path_info
+            path_info,
+            detect_wav,
+            media_duration
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar la app");

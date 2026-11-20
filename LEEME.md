@@ -1,5 +1,13 @@
 # Subir Beat
 
+## Novedades de la versión 2
+
+- Diseño nuevo: tres columnas, fondo cálido, Archivo y acento azul medianoche.
+- Vista previa en vivo de cómo queda en YouTube (búsqueda y página del video) y en la tienda.
+- Al soltar el WAV, completa nombre, BPM y tonalidad desde el nombre del archivo (`@alexgareis_nombre_94bpm_C#m.wav`) y los compara con el análisis del audio.
+- Cada zip lleva un `Léeme.txt` (uno para Premium y otro para Exclusiva), editable en Ajustes.
+- Al instalarla encima de la versión 1 se conservan las claves y los ajustes.
+
 App de Windows para subir un beat de punta a punta. Cargás los datos y los archivos, apretás **Publicar beat**, y la app:
 
 1. Arma los zips Premium (WAV) y Exclusiva (WAV + stems) con tu nomenclatura.

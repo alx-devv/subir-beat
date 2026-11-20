@@ -13,25 +13,28 @@ const GENEROS = ["R&B", "Hip-Hop", "Y2K", "Reggaetón", "Punk", "Newjazz", "Boss
 const MOODS = ["Groovy", "Sad", "Nostalgic", "Happy", "Dark", "Romantic", "Epic", "Sexy", "Hot"];
 const INSTR = ["Guitar", "Piano", "Rhodes", "Pads", "Synth", "Flute", "Trumpet"];
 
-const STEP_TITLES = {
-  archivos: "Zips",
-  bucket: "Bucket",
-  web: "Imagen de la tienda",
-  shopify: "Producto",
-  publicar: "Publicación",
-  video: "Video",
-  youtube: "YouTube",
-};
-const STEP_ORDER = ["archivos", "bucket", "web", "shopify", "publicar", "video", "youtube"];
+// Los 7 pastel de las pastillas de la página de producto (fondo, texto).
+const PASTEL = [["#fef3c7", "#92400e"], ["#fee2e2", "#991b1b"], ["#f3e8ff", "#6b21a8"], ["#e0e7ff", "#3730a3"],
+  ["#dbeafe", "#1e40af"], ["#ccfbf1", "#115e59"], ["#dcfce7", "#166534"]];
+// En la tienda: género en ámbar, mood en índigo, instrumento en menta.
+const STORE_PILL = { genero: PASTEL[0], mood: PASTEL[3], instr: PASTEL[5] };
 
-const VISUAL_EXT = ["jpg", "jpeg", "png", "webp", "gif", "mp4", "mov", "webm", "mkv", "m4v"];
+const STEP_TITLES = { archivos: "Zips", bucket: "Bucket", web: "Imagen de la tienda", shopify: "Producto", publicar: "Publicación", video: "Video", youtube: "YouTube" };
+const STEP_ORDER = ["archivos", "bucket", "web", "shopify", "publicar", "video", "youtube"];
+const VIDEO_EXT = ["mp4", "mov", "webm", "mkv", "m4v"];
+const VISUAL_EXT = ["jpg", "jpeg", "png", "webp", "gif", ...VIDEO_EXT];
 const IMAGE_EXT = ["jpg", "jpeg", "png", "webp"];
 
 const state = {
-  slots: { visual: "", thumbnail: "", wav: "", stems: "", mp3: "" },
+  slots: { wav: "", stems: "", mp3: "", visual: "", thumbnail: "" },
   chips: { genero: [], mood: [], instr: [] },
+  colors: {},          // color pastel sorteado por pastilla
+  detected: null,      // resultado de detect_wav
+  thumbInfo: null,     // tamaño y peso de la miniatura
+  duration: 0,
   settings: null,
   job: null,
+  view: "nuevo",
 };
 
 /* ---------- utilidades ---------- */
@@ -42,79 +45,99 @@ function toast(msg) {
   t.textContent = msg;
   t.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 2400);
 }
-
-function baseName(p) {
-  return p.split(/[\\/]/).pop();
-}
-
-function debounce(fn, ms) {
-  let t;
-  return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
-}
-
+const baseName = (p) => p.split(/[\\/]/).pop();
+const ext = (p) => (p.split(".").pop() || "").toLowerCase();
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sin almacenamiento */ } },
   del(k) { try { localStorage.removeItem(k); } catch { /* nada */ } },
 };
+const fmtTime = (s) => { s = Math.round(s || 0); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+const fmtMB = (b) => `${(b / 1048576).toFixed(1).replace(".", ",")} MB`;
+const keyShort = (k) => (k || "").split("/")[0].trim();
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
-/* ---------- navegación ---------- */
+/* ---------- vistas ---------- */
 
 function show(view) {
-  $$(".view").forEach((v) => (v.hidden = v.id !== `view-${view}`));
-  $$(".tab").forEach((t) => t.classList.toggle("is-on", t.dataset.view === view));
-  if (view === "historial") renderHistory();
+  state.view = view;
+  for (const v of ["nuevo", "trabajo", "ajustes"]) $(`#view-${v}`).hidden = v !== view;
+  $("#settingsBtn").classList.toggle("on", view === "ajustes");
+  if (view !== "trabajo") $$(".recent button").forEach((b) => b.classList.remove("on"));
   if (view === "ajustes") loadSettingsForm();
+  if (view !== "nuevo") stopPreview();
 }
-$$(".tab").forEach((t) => t.addEventListener("click", () => show(t.dataset.view)));
-$("#setupHint").addEventListener("click", () => show("ajustes"));
+$("#newBtn").addEventListener("click", () => { show("nuevo"); $("#f-name").focus(); });
+$("#settingsBtn").addEventListener("click", () => show("ajustes"));
+
+/* ---------- recientes ---------- */
+
+async function renderRecent() {
+  const jobs = await invoke("list_jobs");
+  const ul = $("#recent");
+  ul.innerHTML = "";
+  if (!jobs.length) { ul.append(el("li", "empty", "Todavía no hay beats")); return; }
+  for (const j of jobs) {
+    const done = STEP_ORDER.every((s) => j.steps?.[s]?.status === "listo");
+    const li = el("li");
+    const b = el("button");
+    b.type = "button";
+    b.dataset.handle = j.handle;
+    b.append(el("span", "n", j.input.name));
+    if (done) {
+      const ok = el("span", "st");
+      ok.innerHTML = '<svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></svg>';
+      b.append(ok);
+    } else b.append(el("span", "st", j.running ? "subiendo" : "a medias"));
+    if (state.view === "trabajo" && state.job?.handle === j.handle) b.classList.add("on");
+    b.addEventListener("click", () => openJob(j));
+    li.append(b);
+    ul.append(li);
+  }
+}
 
 /* ---------- formulario ---------- */
 
 function buildChips(id, list, group, max) {
   const box = $(id);
-  box.innerHTML = "";
   for (const v of list) {
-    const b = document.createElement("button");
+    const b = el("button", "chip", v);
     b.type = "button";
-    b.className = "chip";
-    b.textContent = v;
-    b.setAttribute("aria-pressed", "false");
+    b.dataset.v = v;
     b.addEventListener("click", () => {
       const arr = state.chips[group];
       const i = arr.indexOf(v);
-      if (i >= 0) arr.splice(i, 1);
-      else if (!max || arr.length < max) arr.push(v);
-      syncChips();
+      if (i >= 0) { arr.splice(i, 1); delete state.colors[`${group}:${v}`]; }
+      else if (!max || arr.length < max) {
+        arr.push(v);
+        state.colors[`${group}:${v}`] = Math.floor(Math.random() * PASTEL.length);
+      }
+      paintChips();
       changed();
     });
-    box.appendChild(b);
+    box.append(b);
   }
 }
 
-function syncChips() {
+function paintChips() {
   for (const [group, id, max] of [["genero", "#c-genero"], ["mood", "#c-mood"], ["instr", "#c-instr", 3]]) {
     const sel = state.chips[group];
     $$(".chip", $(id)).forEach((b) => {
-      const on = sel.includes(b.textContent);
+      const on = sel.includes(b.dataset.v);
+      b.classList.toggle("on", on);
       b.setAttribute("aria-pressed", String(on));
       b.disabled = !!max && !on && sel.length >= max;
+      if (on) {
+        const k = `${group}:${b.dataset.v}`;
+        if (state.colors[k] == null) state.colors[k] = Math.floor(Math.random() * PASTEL.length);
+        const [bg, fg] = PASTEL[state.colors[k]];
+        Object.assign(b.style, { background: bg, color: fg, borderColor: bg });
+      } else Object.assign(b.style, { background: "", color: "", borderColor: "" });
     });
   }
-}
-
-function initForm() {
-  const key = $("#f-key");
-  for (const k of KEYS) key.add(new Option(k, k));
-  buildChips("#c-genero", GENEROS, "genero");
-  buildChips("#c-mood", MOODS, "mood");
-  buildChips("#c-instr", INSTR, "instr", 3);
-  $("#f-bpm").addEventListener("input", (e) => (e.target.value = e.target.value.replace(/\D/g, "")));
-  $$("#beatForm input, #beatForm select").forEach((el) => el.addEventListener("input", changed));
-  $("#beatForm").addEventListener("submit", (e) => { e.preventDefault(); publish(); });
-  $("#clearBtn").addEventListener("click", clearForm);
 }
 
 function readInput() {
@@ -128,11 +151,7 @@ function readInput() {
     instruments: [...state.chips.instr],
     price_premium: $("#f-pp").value.trim(),
     price_exclusiva: $("#f-pe").value.trim(),
-    wav: state.slots.wav,
-    stems: state.slots.stems,
-    mp3: state.slots.mp3,
-    visual: state.slots.visual,
-    thumbnail: state.slots.thumbnail,
+    ...state.slots,
   };
 }
 
@@ -143,83 +162,131 @@ function writeInput(d) {
   $("#f-artist").value = d.artist || "";
   $("#f-pp").value = d.price_premium || state.settings?.price_premium || "49";
   $("#f-pe").value = d.price_exclusiva || state.settings?.price_exclusiva || "125";
-  state.chips.genero = d.generos || [];
-  state.chips.mood = d.moods || [];
-  state.chips.instr = d.instruments || [];
+  state.chips = { genero: d.generos || [], mood: d.moods || [], instr: d.instruments || [] };
+  state.colors = d.colors || {};
+  state.detected = null;
   for (const k of Object.keys(state.slots)) setSlot(k, d[k] || "", true);
-  syncChips();
+  paintChips();
+  renderDetect();
 }
-
-const refreshPreview = debounce(async () => {
-  const input = readInput();
-  if (!input.name) { $("#names").hidden = true; return; }
-  const p = await invoke("preview", { input });
-  $("#n-folder").textContent = p.folder;
-  $("#n-premium").textContent = p.premium;
-  $("#n-exclusiva").textContent = p.exclusiva;
-  $("#n-title").textContent = p.title;
-  $("#names").hidden = false;
-}, 180);
 
 function changed() {
   $("#formMsg").textContent = "";
-  $$(".invalid").forEach((el) => el.classList.remove("invalid"));
-  store.set("borrador", readInput());
+  $$(".invalid").forEach((e) => e.classList.remove("invalid"));
+  $$(".file.need").forEach((e) => e.classList.remove("need"));
+  store.set("borrador", { ...readInput(), colors: state.colors });
+  renderDetect();
   refreshPreview();
 }
 
 function clearForm() {
   store.del("borrador");
+  stopPreview();
   writeInput({});
   changed();
   $("#f-name").focus();
+}
+
+/* ---------- detección de BPM y tonalidad ---------- */
+
+async function detectFromWav(path) {
+  $("#bpmDet").textContent = "analizando…";
+  $("#keyDet").textContent = "";
+  let d;
+  try { d = await invoke("detect_wav", { path }); } catch { d = null; }
+  if (!d || state.slots.wav !== path) return;
+  state.detected = d;
+  const n = d.from_name || {};
+  const a = d.audio;
+  if (!$("#f-name").value.trim() && n.name) $("#f-name").value = n.name;
+  if (!$("#f-bpm").value) $("#f-bpm").value = n.bpm || a?.bpm || "";
+  if (!$("#f-key").value) $("#f-key").value = n.key || a?.key || "";
+  changed();
+}
+
+function renderDetect() {
+  const d = state.detected;
+  const bpmDet = $("#bpmDet"), keyDet = $("#keyDet");
+  bpmDet.innerHTML = ""; keyDet.innerHTML = "";
+  const sub = $("#headSub");
+  if (!d) {
+    sub.textContent = state.slots.wav ? "Nombre, BPM y tonalidad: completalos a mano" : "Soltá los archivos en cualquier parte de la ventana";
+    return;
+  }
+  const n = d.from_name || {}, a = d.audio;
+  const parts = [n.name && "nombre", n.bpm && "BPM", n.key && "tonalidad"].filter(Boolean);
+  const said = parts.join(", ").replace(/, ([^,]*)$/, " y $1");
+  sub.textContent = parts.length ? `${said.charAt(0).toUpperCase()}${said.slice(1)} ${parts.length > 1 ? "leídos" : "leído"} del archivo` : "BPM y tonalidad detectados del audio";
+
+  const bpm = parseInt($("#f-bpm").value, 10) || 0;
+  if (bpm) {
+    const fromName = n.bpm && n.bpm === bpm;
+    const fromAudio = a && a.bpm === bpm;
+    if (fromName || fromAudio) bpmDet.append(el("span", "src", fromName ? "del archivo" : "detectado"));
+    for (const [label, f] of [["×2", 2], ["÷2", 0.5]]) {
+      const b = el("button", null, label);
+      b.type = "button";
+      b.addEventListener("click", () => { $("#f-bpm").value = Math.round(bpm * f); changed(); });
+      bpmDet.append(b);
+    }
+    if (a && n.bpm && a.bpm !== n.bpm && Math.abs(a.bpm - n.bpm) > 2) bpmDet.append(el("span", "warn", `el audio suena a ${a.bpm}`));
+  }
+  const key = $("#f-key").value;
+  if (key) {
+    const fromName = n.key && n.key === key;
+    const fromAudio = a && (a.key === key);
+    if (fromName || fromAudio) keyDet.append(el("span", "src", fromName ? "del archivo" : "detectado"));
+    const alt = a ? (a.key === key ? a.alt_key : a.alt_key === key ? a.key : null) : null;
+    if (alt) {
+      const b = el("button", null, `o ${keyShort(alt)}`);
+      b.type = "button";
+      b.addEventListener("click", () => { $("#f-key").value = alt; changed(); });
+      keyDet.append(b);
+    }
+    if (a && n.key && a.key !== n.key && a.alt_key !== n.key) keyDet.append(el("span", "warn", `el audio suena a ${keyShort(a.key)}`));
+  }
 }
 
 /* ---------- archivos ---------- */
 
 function setSlot(slot, path, silent) {
   state.slots[slot] = path;
-  const el = $(`.drop[data-slot="${slot}"]`);
-  el.classList.toggle("filled", !!path);
-  if (slot === "visual" || slot === "thumbnail") {
-    const media = $(".drop-media", el);
-    media.innerHTML = "";
-    if (path) {
-      const ext = path.split(".").pop().toLowerCase();
-      let node;
-      if (["mp4", "mov", "webm", "mkv", "m4v"].includes(ext)) {
-        node = document.createElement("video");
-        Object.assign(node, { autoplay: true, loop: true, muted: true, playsInline: true });
-      } else {
-        node = document.createElement("img");
-        node.alt = "";
-      }
-      node.src = src(path);
-      media.appendChild(node);
-    }
-    $(".drop-name", el).textContent = path ? baseName(path) : "";
-  } else {
-    const empty = { wav: "Soltá el .wav", stems: "Soltá la carpeta", mp3: "Soltá el .mp3" }[slot];
-    $(".slot-val", el).textContent = path ? baseName(path) : empty;
-  }
+  const row = $(`.file[data-slot="${slot}"]`);
+  row.classList.toggle("filled", !!path);
+  const v = $(".fval", row);
+  v.textContent = path ? baseName(path) : v.dataset.empty;
+  if (slot === "mp3") loadAudio(path);
+  if (slot === "thumbnail") loadThumbInfo(path);
+  if (slot === "wav" && path && !silent) detectFromWav(path);
+  if (slot === "visual") stopPreview();
   if (!silent) changed();
 }
 
-/** Decide dónde va cada cosa arrastrada (o elegida), aunque no caiga justo en su lugar. */
-async function place(paths, targetSlot) {
+async function loadAudio(path) {
+  stopPreview();
+  const audio = $("#audio");
+  state.duration = 0;
+  if (!path) { audio.removeAttribute("src"); return; }
+  audio.src = src(path);
+  const d = await invoke("media_duration", { path }).catch(() => null);
+  if (state.slots.mp3 === path && d) { state.duration = d; refreshPreview(); }
+}
+
+async function loadThumbInfo(path) {
+  state.thumbInfo = null;
+  if (!path) return;
+  const [info] = await invoke("path_info", { paths: [path] });
+  if (state.slots.thumbnail === path) { state.thumbInfo = info; refreshPreview(); }
+}
+
+/** Ubica cada cosa arrastrada en su lugar, aunque no caiga justo encima. */
+async function place(paths, target) {
   const infos = await invoke("path_info", { paths });
   const unplaced = [];
   for (const f of infos) {
+    const fits = (s) => ({ wav: f.ext === "wav", mp3: f.ext === "mp3", stems: f.is_dir, visual: VISUAL_EXT.includes(f.ext), thumbnail: IMAGE_EXT.includes(f.ext) }[s]);
     let slot = null;
-    const fits = (s) => {
-      if (s === "wav") return f.ext === "wav";
-      if (s === "mp3") return f.ext === "mp3";
-      if (s === "stems") return f.is_dir;
-      if (s === "visual") return VISUAL_EXT.includes(f.ext);
-      if (s === "thumbnail") return IMAGE_EXT.includes(f.ext);
-      return false;
-    };
-    if (targetSlot && fits(targetSlot)) slot = targetSlot;
+    if (target && fits(target)) slot = target;
     else if (f.is_dir) slot = "stems";
     else if (f.ext === "wav") slot = "wav";
     else if (f.ext === "mp3") slot = "mp3";
@@ -227,7 +294,7 @@ async function place(paths, targetSlot) {
     else if (VISUAL_EXT.includes(f.ext)) slot = "visual";
     if (slot) {
       setSlot(slot, f.path);
-      if (slot === "stems" && f.wav_count === 0) toast("Ojo: esa carpeta no tiene archivos .wav");
+      if (slot === "stems" && f.wav_count === 0) toast("Esa carpeta no tiene archivos .wav");
     } else unplaced.push(f.name);
   }
   if (unplaced.length) toast(`No sé dónde va ${unplaced.join(", ")}`);
@@ -239,23 +306,11 @@ const FILTERS = {
   visual: [{ name: "Imagen, gif o video", extensions: VISUAL_EXT }],
   thumbnail: [{ name: "Imagen", extensions: IMAGE_EXT }],
 };
-
-$$(".drop").forEach((el) =>
-  el.addEventListener("click", async () => {
-    const slot = el.dataset.slot;
-    const picked = await T.dialog.open({
-      directory: slot === "stems",
-      multiple: false,
-      filters: FILTERS[slot],
-    });
-    if (picked) place([picked], slot);
-  })
-);
-
-function zoneAt(x, y) {
-  const el = document.elementFromPoint(x, y);
-  return el ? el.closest(".drop") : null;
-}
+$$(".file").forEach((row) => row.addEventListener("click", async () => {
+  const slot = row.dataset.slot;
+  const picked = await T.dialog.open({ directory: slot === "stems", multiple: false, filters: FILTERS[slot] });
+  if (picked) place([picked], slot);
+}));
 
 async function initDragDrop() {
   let over = null;
@@ -264,12 +319,14 @@ async function initDragDrop() {
     const dpr = window.devicePixelRatio || 1;
     if (p.type === "enter" || p.type === "over") {
       document.body.classList.add("dragging");
-      const z = p.position ? zoneAt(p.position.x / dpr, p.position.y / dpr) : null;
+      const hit = p.position ? document.elementFromPoint(p.position.x / dpr, p.position.y / dpr) : null;
+      const z = hit ? hit.closest(".file") : null;
       if (z !== over) { over?.classList.remove("over"); z?.classList.add("over"); over = z; }
     } else {
       document.body.classList.remove("dragging");
       over?.classList.remove("over");
-      if (p.type === "drop" && p.paths?.length && !$("#view-nuevo").hidden) {
+      if (p.type === "drop" && p.paths?.length) {
+        if (state.view !== "nuevo") show("nuevo");
         place(p.paths, over?.dataset.slot);
       }
       over = null;
@@ -277,25 +334,157 @@ async function initDragDrop() {
   });
 }
 
+/* ---------- vista previa ---------- */
+
+let pvView = "yt";
+function setPreview(v) {
+  pvView = v;
+  $(".switch").classList.toggle("st", v === "st");
+  $$(".opt").forEach((o) => {
+    const on = o.dataset.v === v;
+    o.classList.toggle("act", on);
+    o.setAttribute("aria-selected", String(on));
+    o.tabIndex = on ? 0 : -1;
+  });
+  $("#pv-yt").hidden = v !== "yt";
+  $("#pv-st").hidden = v !== "st";
+  if (v !== "yt") stopPreview();
+}
+$$(".opt").forEach((o) => {
+  o.addEventListener("click", () => setPreview(o.dataset.v));
+  o.addEventListener("keydown", (e) => {
+    if (["ArrowLeft", "ArrowRight", "Enter", " "].includes(e.key)) {
+      e.preventDefault();
+      const next = e.key === "Enter" || e.key === " " ? o.dataset.v : (pvView === "yt" ? "st" : "yt");
+      setPreview(next);
+      $(`.opt[data-v="${next}"]`).focus();
+    }
+  });
+});
+
+/** Visual en un contenedor: video o gif en loop, o imagen. */
+function mountVisual(box, path, { muted = true, autoplay = false } = {}) {
+  const prev = box.dataset.path || "";
+  if (prev === path) return box.querySelector("video");
+  box.dataset.path = path;
+  box.innerHTML = "";
+  if (!path) return null;
+  if (VIDEO_EXT.includes(ext(path))) {
+    const v = document.createElement("video");
+    Object.assign(v, { src: src(path), loop: true, muted, playsInline: true, autoplay, preload: "auto" });
+    // Sin reproducir, se muestra el primer cuadro en lugar de un recuadro vacío.
+    v.addEventListener("loadeddata", () => { if (v.paused && v.currentTime === 0) v.currentTime = 0.05; }, { once: true });
+    box.append(v);
+    return v;
+  }
+  const img = document.createElement("img");
+  img.src = src(path);
+  img.alt = "";
+  box.append(img);
+  return null;
+}
+
+function stopPreview() {
+  const a = $("#audio");
+  if (!a.paused) a.pause();
+  $("#player").classList.remove("playing");
+  const v = $("#playerVisual video");
+  if (v) v.pause();
+}
+
+$("#playBtn").addEventListener("click", async () => {
+  const a = $("#audio");
+  const player = $("#player");
+  const v = $("#playerVisual video");
+  if (!state.slots.mp3) { toast("Soltá el mp3 con tag para escuchar la vista previa"); return; }
+  if (player.classList.contains("playing")) { stopPreview(); return; }
+  try { await a.play(); } catch { toast("No se pudo reproducir el mp3"); return; }
+  if (v) v.play().catch(() => {});
+  player.classList.add("playing");
+});
+$("#audio").addEventListener("timeupdate", (e) => {
+  const a = e.target;
+  $("#playBar").style.width = a.duration ? `${(a.currentTime / a.duration) * 100}%` : "0";
+});
+$("#audio").addEventListener("ended", stopPreview);
+
+function metaRows(dl, rows) {
+  dl.innerHTML = "";
+  for (const [dt, dd, bad] of rows) {
+    const div = el("div", bad ? "bad" : null);
+    div.append(el("dt", null, dt), el("dd", null, dd));
+    dl.append(div);
+  }
+}
+
+const refreshPreview = debounce(async () => {
+  const input = readInput();
+  let p = { title: "", description: "", tags: "", handle: "" };
+  if (input.name) p = await invoke("preview", { input }).catch(() => p);
+  const title = p.title || "Título del video";
+
+  // YouTube
+  $("#ytTitleS").textContent = title;
+  $("#ytTitleV").textContent = title;
+  $("#ytDur").textContent = fmtTime(state.duration);
+  $("#ytThumb").style.backgroundImage = state.slots.thumbnail ? `url("${src(state.slots.thumbnail)}")` : "";
+  mountVisual($("#playerVisual"), state.slots.visual);
+  const lines = (p.description || "").split("\n").slice(0, 3).join("\n");
+  const desc = $("#ytDesc");
+  desc.textContent = lines || "La descripción aparece cuando completás el nombre.";
+  if (lines) desc.append(el("span", "more", "\n…más"));
+
+  const tlen = [...(p.title || "")].length;
+  const tagLen = (p.tags || "").length;
+  const ti = state.thumbInfo;
+  const thumbOk = ti && ti.width === 1280 && ti.height === 720 && ti.size < 2 * 1048576;
+  metaRows($("#ytMeta"), [
+    ["Título", tlen ? `${tlen} / 100 · ${tlen <= 70 ? "se lee completo" : "se corta en búsqueda"}` : "—", tlen > 100],
+    ["Tags", tagLen ? `${tagLen} / 500` : "—", tagLen > 500],
+    ["Miniatura", ti ? `${ti.width} × ${ti.height} · ${fmtMB(ti.size)}${thumbOk ? "" : " · se adapta al publicar"}` : "—"],
+    ["Duración", state.duration ? fmtTime(state.duration) : "—"],
+  ]);
+
+  // Tienda
+  $("#stTitle").textContent = input.name || "Nombre del beat";
+  mountVisual($("#stImg"), state.slots.visual, { autoplay: true });
+  const specs = $("#stSpecs");
+  specs.innerHTML = "";
+  const spec = [input.bpm ? `${input.bpm} BPM` : null, input.key ? keyShort(input.key) : null].filter(Boolean).join(" · ");
+  if (spec) specs.append(el("span", null, spec));
+  const firsts = [["genero", input.generos[0]], ["mood", input.moods[0]], ["instr", input.instruments[0]]].filter(([, v]) => v);
+  if (spec && firsts.length) specs.append(el("span", "dv", "•"));
+  for (const [g, v] of firsts) {
+    const pill = el("span", "pill", v);
+    pill.style.background = STORE_PILL[g][0];
+    pill.style.color = STORE_PILL[g][1];
+    specs.append(pill);
+  }
+  const money = (v) => { const n = parseFloat(String(v).replace(",", ".")); return Number.isFinite(n) ? (Number.isInteger(n) ? n : n.toFixed(2)) : "—"; };
+  $("#stVarP").textContent = `WAV Premium — $${money(input.price_premium)} USD`;
+  $("#stVarE").textContent = `WAV + STEMS Exclusiva — $${money(input.price_exclusiva)} USD`;
+  const vis = state.slots.visual;
+  metaRows($("#stMeta"), [
+    ["Imagen", !vis ? "—" : VIDEO_EXT.includes(ext(vis)) ? `gif ${state.settings?.gif_size || 600} × ${state.settings?.gif_size || 600} · se crea al publicar` : ext(vis) === "gif" ? "gif tal cual" : "imagen tal cual"],
+    ["Link", p.handle ? `/products/${p.handle}` : "—"],
+    ["Canales", "Tienda · Instagram · POS"],
+  ]);
+}, 150);
+
 /* ---------- publicar ---------- */
 
 function markInvalid(msg) {
-  const map = [
-    ["nombre", "#f-name"], ["BPM", "#f-bpm"], ["tonalidad", "#f-key"],
-    ["artista", "#f-artist"], ["precios", "#f-pp"],
-  ];
-  for (const [word, sel] of map) if (msg.includes(word)) $(sel).classList.add("invalid");
-  const slotWords = [["WAV", "wav"], ["stems", "stems"], ["mp3", "mp3"], ["visual", "visual"]];
-  for (const [word, slot] of slotWords) if (msg.includes(word)) $(`.drop[data-slot="${slot}"]`).classList.add("over");
-  setTimeout(() => $$(".drop.over").forEach((d) => d.classList.remove("over")), 1600);
+  const map = [["nombre", "#f-name"], ["BPM", "#f-bpm"], ["tonalidad", "#f-key"], ["artista", "#f-artist"], ["precios", "#f-pp"]];
+  for (const [w, sel] of map) if (msg.includes(w)) $(sel).classList.add("invalid");
+  for (const [w, slot] of [["WAV", "wav"], ["stems", "stems"], ["mp3", "mp3"], ["visual", "visual"]]) {
+    if (msg.includes(w)) $(`.file[data-slot="${slot}"]`).classList.add("need");
+  }
 }
 
 async function publish() {
   const input = readInput();
   const btn = $("#publishBtn");
-  try {
-    await invoke("validate_input", { input });
-  } catch (e) {
+  try { await invoke("validate_input", { input }); } catch (e) {
     $("#formMsg").textContent = e;
     markInvalid(String(e));
     return;
@@ -304,20 +493,26 @@ async function publish() {
   try {
     const handle = await invoke("start_job", { input });
     store.del("borrador");
+    stopPreview();
     openJob({ handle, input, steps: {}, running: true });
+    renderRecent();
   } catch (e) {
     $("#formMsg").textContent = e;
   } finally {
     btn.disabled = false;
   }
 }
+$("#publishBtn").addEventListener("click", publish);
+$("#clearBtn").addEventListener("click", clearForm);
 
-/* ---------- vista del trabajo ---------- */
+/* ---------- trabajo ---------- */
 
 function openJob(job) {
   state.job = job;
-  renderJob();
+  $("#steps").innerHTML = "";
   show("trabajo");
+  renderJob();
+  $$(".recent button").forEach((b) => b.classList.toggle("on", b.dataset.handle === job.handle));
 }
 
 function renderJob() {
@@ -325,20 +520,17 @@ function renderJob() {
   if (!j) return;
   $("#jobName").textContent = j.input.name;
   const done = STEP_ORDER.every((s) => j.steps?.[s]?.status === "listo");
-  $("#jobSub").textContent = j.running
-    ? "Subiendo. Podés dejar la app abierta y seguir con otra cosa."
-    : done
-      ? "Listo. Falta solo subir el video en YouTube Studio."
+  $("#jobSub").textContent = j.running ? "Subiendo. Podés seguir con otra cosa mientras tanto."
+    : done ? "Publicado. Falta solo subir el video en YouTube Studio."
       : j.error ? "Se detuvo antes de terminar." : "";
 
   const ol = $("#steps");
   if (!ol.children.length) {
     for (const s of STEP_ORDER) {
-      const li = document.createElement("li");
-      li.className = "step";
+      const li = el("li", "step");
       li.dataset.step = s;
-      li.innerHTML = `<span class="dot"></span><span class="step-title">${STEP_TITLES[s]}</span><span class="step-detail"><span class="txt"></span><span class="meter" hidden><i></i></span></span>`;
-      ol.appendChild(li);
+      li.innerHTML = `<span class="sdot"></span><span class="step-title">${STEP_TITLES[s]}</span><span class="step-detail"><span class="txt"></span><span class="meter" hidden><i></i></span></span>`;
+      ol.append(li);
     }
   }
   for (const s of STEP_ORDER) {
@@ -350,19 +542,16 @@ function renderJob() {
     m.hidden = st.status !== "en_curso";
     if (st.status !== "en_curso") $("i", m).style.width = "0";
   }
-
-  const showErr = !j.running && !!j.error;
-  $("#jobError").hidden = !showErr;
+  $("#jobError").hidden = j.running || !j.error;
   $("#jobErrorText").textContent = j.error || "";
-
   $("#result").hidden = !done;
   if (done) {
-    $("#ytTitle").textContent = j.yt_title;
-    $("#ytDesc").textContent = j.yt_description;
-    $("#ytTags").textContent = j.yt_tags;
-    const img = $("#ytThumb");
+    $("#jobTitle").textContent = j.yt_title;
+    $("#jobDesc").textContent = j.yt_description;
+    $("#jobTags").textContent = j.yt_tags;
+    const img = $("#jobThumb");
     img.hidden = !j.thumbnail;
-    if (j.thumbnail) img.src = src(j.thumbnail) + `?v=${j.created}`;
+    if (j.thumbnail) img.src = `${src(j.thumbnail)}?v=${j.created}`;
     $("#thumbNote").hidden = !j.thumbnail_note;
     $("#thumbNote").textContent = j.thumbnail_note ? `Miniatura: ${j.thumbnail_note}` : "";
   }
@@ -377,10 +566,6 @@ function onProgress({ step, detail, progress }) {
   $("i", m).style.width = `${(progress * 100).toFixed(1)}%`;
 }
 
-$("#jobBack").addEventListener("click", () => {
-  $("#steps").innerHTML = "";
-  show("nuevo");
-});
 $("#retryBtn").addEventListener("click", async () => {
   try {
     await invoke("retry_job", { handle: state.job.handle });
@@ -399,54 +584,19 @@ $$("[data-copy]").forEach((b) => b.addEventListener("click", async () => {
   b.classList.add("done");
   setTimeout(() => { b.textContent = "Copiar"; b.classList.remove("done"); }, 1400);
 }));
-$("#revealVideo").addEventListener("click", () => {
-  if (state.job?.video) T.opener.revealItemInDir(state.job.video);
-});
+$("#revealVideo").addEventListener("click", () => { if (state.job?.video) T.opener.revealItemInDir(state.job.video); });
 $("#openStudio").addEventListener("click", async () => {
-  // Título copiado de entrada: es lo primero que pide Studio después de soltar el video.
   if (state.job?.yt_title) await T.clipboardManager.writeText(state.job.yt_title);
   if (state.job?.video) T.opener.revealItemInDir(state.job.video);
   T.opener.openUrl("https://www.youtube.com/upload");
   toast("Título copiado. Arrastrá el video a Studio.");
 });
 
-/* ---------- historial ---------- */
-
-function fmtDate(secs) {
-  return new Date(secs * 1000).toLocaleString("es-AR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-}
-
-async function renderHistory() {
-  const jobs = await invoke("list_jobs");
-  const ul = $("#history");
-  ul.innerHTML = "";
-  $("#historyEmpty").hidden = jobs.length > 0;
-  for (const j of jobs) {
-    const done = STEP_ORDER.every((s) => j.steps?.[s]?.status === "listo");
-    const li = document.createElement("li");
-    const name = document.createElement("button");
-    name.className = "h-name";
-    name.textContent = j.input.name;
-    name.addEventListener("click", () => { $("#steps").innerHTML = ""; openJob(j); });
-    const date = document.createElement("span");
-    date.className = "h-date";
-    date.textContent = fmtDate(j.created);
-    const st = document.createElement("span");
-    st.className = "h-state " + (done ? "ok" : j.running ? "" : "bad");
-    st.textContent = done ? "Publicado" : j.running ? "Subiendo" : "A medias";
-    li.append(name, date, st);
-    ul.appendChild(li);
-  }
-}
-
 /* ---------- ajustes ---------- */
 
 async function loadSettings() {
   const v = await invoke("get_settings");
   state.settings = v.settings;
-  const s = v.settings;
-  const missing = !v.has_shopify_secret || !v.has_r2_secret || !s.shop_client_id || !s.r2_account_id || !s.r2_access_key_id;
-  $("#setupHint").hidden = !missing;
   return v;
 }
 
@@ -454,14 +604,13 @@ async function loadSettingsForm() {
   const v = await loadSettings();
   const f = $("#settingsForm");
   for (const [k, val] of Object.entries(v.settings)) {
-    const el = f.elements[k];
-    if (!el) continue;
-    if (el.type === "checkbox") el.checked = !!val;
-    else el.value = val;
+    const e = f.elements[k];
+    if (!e) continue;
+    if (e.type === "checkbox") e.checked = !!val; else e.value = val;
   }
   $('[data-secret="shopify"]').placeholder = v.has_shopify_secret ? "Guardado (escribí para cambiarlo)" : "Sin cargar";
   $('[data-secret="r2"]').placeholder = v.has_r2_secret ? "Guardado (escribí para cambiarlo)" : "Sin cargar";
-  $$("[data-secret]").forEach((el) => (el.value = ""));
+  $$("[data-secret]").forEach((e) => (e.value = ""));
 }
 
 $("#settingsForm").addEventListener("submit", async (e) => {
@@ -469,19 +618,16 @@ $("#settingsForm").addEventListener("submit", async (e) => {
   const f = e.target;
   const s = { ...state.settings };
   for (const k of Object.keys(s)) {
-    const el = f.elements[k];
-    if (!el) continue;
-    if (el.type === "checkbox") s[k] = el.checked;
-    else if (typeof s[k] === "number") s[k] = parseInt(el.value, 10) || s[k];
-    else s[k] = el.value.trim();
+    const field = f.elements[k];
+    if (!field) continue;
+    if (field.type === "checkbox") s[k] = field.checked;
+    else if (typeof s[k] === "number") s[k] = parseInt(field.value, 10) || s[k];
+    else s[k] = field.value.trim();
   }
   try {
-    await invoke("save_settings", {
-      settings: s,
-      shopifySecret: $('[data-secret="shopify"]').value,
-      r2Secret: $('[data-secret="r2"]').value,
-    });
+    await invoke("save_settings", { settings: s, shopifySecret: $('[data-secret="shopify"]').value, r2Secret: $('[data-secret="r2"]').value });
     await loadSettingsForm();
+    refreshPreview();
     toast("Ajustes guardados");
   } catch (err) { toast(String(err)); }
 });
@@ -492,14 +638,11 @@ $("#testBtn").addEventListener("click", async () => {
   const r = await invoke("test_connections");
   ul.innerHTML = "";
   for (const [name, c] of [["Shopify", r.shopify], ["R2", r.r2], ["ffmpeg", r.ffmpeg]]) {
-    const li = document.createElement("li");
-    li.className = c.ok ? "ok" : "";
-    li.textContent = `${name}: ${c.detail}`;
+    const li = el("li", c.ok ? "ok" : null, `${name}: ${c.detail}`);
     li.title = c.detail;
-    ul.appendChild(li);
+    ul.append(li);
   }
 });
-
 $("#pickOut").addEventListener("click", async () => {
   const p = await T.dialog.open({ directory: true });
   if (p) $("#s-out").value = p;
@@ -508,24 +651,30 @@ $("#pickOut").addEventListener("click", async () => {
 /* ---------- inicio ---------- */
 
 async function main() {
-  initForm();
+  const key = $("#f-key");
+  for (const k of KEYS) key.add(new Option(k, k));
+  buildChips("#c-genero", GENEROS, "genero");
+  buildChips("#c-mood", MOODS, "mood");
+  buildChips("#c-instr", INSTR, "instr", 3);
+  $("#f-bpm").addEventListener("input", (e) => (e.target.value = e.target.value.replace(/\D/g, "")));
+  $$("#beatForm input, #beatForm select").forEach((e) => e.addEventListener("input", changed));
+  $("#beatForm").addEventListener("submit", (e) => e.preventDefault());
+
   await loadSettings();
   writeInput(store.get("borrador") || {});
+  setPreview("yt");
   refreshPreview();
+  await renderRecent();
   await initDragDrop();
 
   await T.event.listen("trabajo", (e) => {
-    if (state.job && e.payload.handle === state.job.handle) {
-      state.job = e.payload;
-      renderJob();
-    }
+    if (state.job && e.payload.handle === state.job.handle) { state.job = e.payload; renderJob(); }
+    if (!e.payload.running) renderRecent();
   });
   await T.event.listen("avance", (e) => onProgress(e.payload));
 
-  // Si quedó algo a medias, se ofrece retomarlo.
-  const jobs = await invoke("list_jobs");
-  const pending = jobs.find((j) => !j.running && j.error);
-  if (pending) toast(`"${pending.input.name}" quedó a medias. Está en Historial.`);
+  const s = state.settings;
+  if (!s.shop_client_id || !s.r2_account_id || !s.r2_access_key_id) toast("Falta configurar las conexiones en Ajustes");
   $("#f-name").focus();
 }
 

@@ -7,139 +7,156 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="bar">
-    <span class="mark" aria-hidden="true"></span>
-    <nav class="tabs" role="tablist">
-      <button class="tab is-on" data-view="nuevo" role="tab">Nuevo beat</button>
-      <button class="tab" data-view="historial" role="tab">Historial</button>
-      <button class="tab" data-view="ajustes" role="tab">Ajustes</button>
-    </nav>
-    <span class="setup-hint" id="setupHint" hidden>Falta configurar las conexiones</span>
-  </header>
+<div class="app">
 
-  <!-- NUEVO BEAT -->
-  <main class="view" id="view-nuevo">
-    <form class="beat" id="beatForm" autocomplete="off" novalidate>
-      <section class="meta">
+  <!-- Barra lateral -->
+  <aside class="side">
+    <button class="new" id="newBtn" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>Nuevo beat</button>
+    <p class="side-label">Recientes</p>
+    <ul class="recent" id="recent"></ul>
+    <button class="side-link" id="settingsBtn" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1"/></svg>Ajustes</button>
+  </aside>
+
+  <!-- NUEVO BEAT: formulario + vista previa -->
+  <main class="view form-view" id="view-nuevo">
+    <form class="col center" id="beatForm" autocomplete="off" novalidate>
+      <header class="head">
         <label class="sr" for="f-name">Nombre del beat</label>
-        <input class="name" id="f-name" name="name" placeholder="nombre del beat" spellcheck="false" maxlength="60">
+        <input class="title-input" id="f-name" placeholder="Nombre del beat" spellcheck="false" maxlength="60">
+        <p class="sub" id="headSub">Soltá los archivos en cualquier parte de la ventana</p>
+      </header>
 
-        <div class="row three">
-          <div class="field">
-            <label for="f-bpm">BPM</label>
-            <input id="f-bpm" name="bpm" inputmode="numeric" maxlength="3" placeholder="96">
-          </div>
-          <div class="field">
-            <label for="f-key">Tonalidad</label>
-            <select id="f-key" name="key"><option value="">Elegir</option></select>
-          </div>
-          <div class="field">
-            <label for="f-artist">Artista de referencia</label>
-            <input id="f-artist" name="artist" placeholder="Feid x Bryant Myers">
-          </div>
+      <section class="card grid-3">
+        <div class="field">
+          <label for="f-bpm">BPM</label>
+          <input id="f-bpm" class="big" inputmode="numeric" maxlength="3" placeholder="—">
+          <p class="det" id="bpmDet"></p>
         </div>
-
-        <fieldset class="chips-field">
-          <legend>Género</legend>
-          <div class="chips" id="c-genero"></div>
-        </fieldset>
-        <fieldset class="chips-field">
-          <legend>Mood</legend>
-          <div class="chips" id="c-mood"></div>
-        </fieldset>
-        <fieldset class="chips-field">
-          <legend>Instrumentos <span class="soft">hasta 3</span></legend>
-          <div class="chips" id="c-instr"></div>
-        </fieldset>
-
-        <div class="row two prices">
-          <div class="field">
-            <label for="f-pp">WAV Premium</label>
-            <div class="money"><span>$</span><input id="f-pp" name="price_premium" inputmode="decimal"><span>USD</span></div>
-          </div>
-          <div class="field">
-            <label for="f-pe">WAV + STEMS Exclusiva</label>
-            <div class="money"><span>$</span><input id="f-pe" name="price_exclusiva" inputmode="decimal"><span>USD</span></div>
-          </div>
+        <div class="field">
+          <label for="f-key">Tonalidad</label>
+          <select id="f-key" class="big"><option value="">—</option></select>
+          <p class="det" id="keyDet"></p>
+        </div>
+        <div class="field">
+          <label for="f-artist">Artista de referencia</label>
+          <input id="f-artist" placeholder="Feid x Bryant Myers">
         </div>
       </section>
 
-      <section class="files">
-        <div class="visuals">
-          <button type="button" class="drop drop-visual" data-slot="visual">
-            <span class="drop-media"></span>
-            <span class="drop-empty">
-              <strong>Visual</strong>
-              <span>Imagen, gif o video</span>
-            </span>
-            <span class="drop-name"></span>
-          </button>
-          <button type="button" class="drop drop-thumb" data-slot="thumbnail">
-            <span class="drop-media"></span>
-            <span class="drop-empty">
-              <strong>Miniatura de YouTube</strong>
-              <span>1280 × 720</span>
-            </span>
-            <span class="drop-name"></span>
-          </button>
-        </div>
-
-        <ul class="slots">
-          <li><button type="button" class="drop slot" data-slot="wav"><strong>WAV</strong><span class="slot-val">Soltá el .wav</span></button></li>
-          <li><button type="button" class="drop slot" data-slot="stems"><strong>Stems</strong><span class="slot-val">Soltá la carpeta</span></button></li>
-          <li><button type="button" class="drop slot" data-slot="mp3"><strong>MP3 con tag</strong><span class="slot-val">Soltá el .mp3</span></button></li>
-        </ul>
-
-        <dl class="names" id="names" hidden>
-          <dt>Carpeta</dt><dd id="n-folder"></dd>
-          <dt>Premium</dt><dd id="n-premium"></dd>
-          <dt>Exclusiva</dt><dd id="n-exclusiva"></dd>
-          <dt>YouTube</dt><dd id="n-title"></dd>
-        </dl>
+      <section class="card">
+        <p class="lbl">Género</p><div class="chips" id="c-genero"></div>
+        <p class="lbl">Mood</p><div class="chips" id="c-mood"></div>
+        <p class="lbl">Instrumentos <span class="soft">hasta 3</span></p><div class="chips" id="c-instr"></div>
       </section>
 
-      <footer class="go">
-        <p class="go-msg" id="formMsg" role="status"></p>
-        <button type="button" class="btn ghost" id="clearBtn">Vaciar</button>
-        <button type="submit" class="btn primary" id="publishBtn">Publicar beat</button>
-      </footer>
+      <section class="card files" id="files">
+        <button type="button" class="file" data-slot="wav"><span class="ico"><svg viewBox="0 0 16 16"><path d="M1.5 8h2l1.5-4 2 8 2-6 1.5 4 1.5-2h2.5"/></svg></span><span class="fname">WAV</span><span class="fval" data-empty="Soltá el .wav">Soltá el .wav</span><span class="dot"></span></button>
+        <button type="button" class="file" data-slot="stems"><span class="ico"><svg viewBox="0 0 16 16"><path d="M2 4.5h4l1.2 1.5H14v6.5H2z"/></svg></span><span class="fname">Stems</span><span class="fval" data-empty="Soltá la carpeta">Soltá la carpeta</span><span class="dot"></span></button>
+        <button type="button" class="file" data-slot="mp3"><span class="ico"><svg viewBox="0 0 16 16"><path d="M6 12V3.5l7-1.5V10.5"/><circle cx="4.5" cy="12" r="1.6"/><circle cx="11.5" cy="10.5" r="1.6"/></svg></span><span class="fname">MP3 con tag</span><span class="fval" data-empty="Soltá el .mp3">Soltá el .mp3</span><span class="dot"></span></button>
+        <button type="button" class="file" data-slot="visual"><span class="ico"><svg viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2.5 11l3.5-3.5 3 3 2-2 2.5 2.5"/></svg></span><span class="fname">Visual</span><span class="fval" data-empty="Imagen, gif o video">Imagen, gif o video</span><span class="dot"></span></button>
+        <button type="button" class="file" data-slot="thumbnail"><span class="ico"><svg viewBox="0 0 16 16"><rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><path d="M6.5 6.2v3.6L9.8 8z"/></svg></span><span class="fname">Miniatura</span><span class="fval" data-empty="1280 × 720">1280 × 720</span><span class="dot"></span></button>
+      </section>
+
+      <section class="card grid-2">
+        <div class="field">
+          <label for="f-pp">WAV Premium</label>
+          <div class="money"><span>$</span><input id="f-pp" inputmode="decimal"><span>USD</span></div>
+        </div>
+        <div class="field">
+          <label for="f-pe">WAV + STEMS Exclusiva</label>
+          <div class="money"><span>$</span><input id="f-pe" inputmode="decimal"><span>USD</span></div>
+        </div>
+      </section>
     </form>
-  </main>
 
-  <!-- PROGRESO / RESULTADO -->
-  <main class="view" id="view-trabajo" hidden>
-    <div class="job">
-      <button class="back" id="jobBack" type="button">Nuevo beat</button>
-      <h1 class="job-name" id="jobName"></h1>
-      <p class="job-sub" id="jobSub"></p>
-
-      <ol class="steps" id="steps"></ol>
-
-      <div class="job-error" id="jobError" hidden>
-        <p id="jobErrorText"></p>
-        <button class="btn primary" id="retryBtn" type="button">Retomar</button>
+    <aside class="col preview">
+      <div class="switch" role="tablist" aria-label="Vista previa">
+        <span class="knob" aria-hidden="true"></span>
+        <div class="opt act" role="tab" tabindex="0" aria-selected="true" data-v="yt">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3.5" width="13" height="9" rx="2.5"/><path d="M6.8 6.3v3.4L9.7 8z"/></svg>YouTube</div>
+        <div class="opt" role="tab" tabindex="-1" aria-selected="false" data-v="st">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6.5h11v7h-11zM2 6.5l1.2-3.5h9.6L14 6.5M6.5 13.5V10h3v3.5"/></svg>Tienda</div>
       </div>
 
-      <section class="result" id="result" hidden>
-        <div class="result-links">
-          <button class="btn primary" data-open="product_url" type="button">Ver en la tienda</button>
-          <button class="btn ghost" data-open="admin_url" type="button">Abrir en Shopify</button>
-        </div>
-
-        <div class="yt">
-          <div class="yt-head">
-            <h2>YouTube</h2>
-            <div class="yt-actions">
-              <button class="btn ghost" id="revealVideo" type="button">Mostrar video</button>
-              <button class="btn primary" id="openStudio" type="button">Abrir YouTube Studio</button>
+      <div class="pv" id="pv-yt">
+        <div>
+          <p class="cap">En la búsqueda</p>
+          <div class="search">
+            <div class="thumb" id="ytThumb"><span class="dur" id="ytDur">0:00</span></div>
+            <div class="sr-text">
+              <p class="s-title" id="ytTitleS">Título del video</p>
+              <p class="s-chan">Alex Gareis</p>
             </div>
           </div>
+        </div>
+        <div>
+          <p class="cap">En la página del video</p>
+          <div class="player" id="player">
+            <div class="sq" id="playerVisual"></div>
+            <button type="button" class="play" id="playBtn" aria-label="Reproducir la vista previa"><svg viewBox="0 0 16 16"><path d="M5 3.5v9l7.5-4.5z"/></svg></button>
+            <div class="bar"><i id="playBar"></i></div>
+          </div>
+          <p class="v-title" id="ytTitleV">Título del video</p>
+          <div class="desc" id="ytDesc"></div>
+        </div>
+        <dl class="meta" id="ytMeta"></dl>
+      </div>
+
+      <div class="pv" id="pv-st">
+        <div>
+          <p class="cap">En la página del producto</p>
+          <div class="product">
+            <div class="p-img" id="stImg"></div>
+            <p class="p-title" id="stTitle">Nombre del beat</p>
+            <div class="p-specs" id="stSpecs"></div>
+            <p class="p-lic">Selecciona tu licencia</p>
+            <div class="p-vars">
+              <span class="var" id="stVarP">WAV Premium — $49 USD</span>
+              <span class="var on" id="stVarE">WAV + STEMS Exclusiva — $125 USD</span>
+            </div>
+          </div>
+        </div>
+        <dl class="meta" id="stMeta"></dl>
+      </div>
+
+      <footer class="publish">
+        <p class="msg" id="formMsg" role="status"></p>
+        <button type="button" class="btn ghost small" id="clearBtn">Vaciar</button>
+        <button type="button" class="btn accent" id="publishBtn">Publicar beat</button>
+      </footer>
+      <audio id="audio" preload="none"></audio>
+    </aside>
+  </main>
+
+  <!-- TRABAJO: progreso y resultado -->
+  <main class="view wide" id="view-trabajo" hidden>
+    <div class="col">
+      <header class="head">
+        <h1 class="title" id="jobName"></h1>
+        <p class="sub" id="jobSub"></p>
+      </header>
+      <ol class="steps card" id="steps"></ol>
+      <div class="alert" id="jobError" hidden>
+        <p id="jobErrorText"></p>
+        <button class="btn dark" id="retryBtn" type="button">Retomar</button>
+      </div>
+      <section class="result" id="result" hidden>
+        <div class="row-btns">
+          <button class="btn ghost" data-open="product_url" type="button">Ver en la tienda</button>
+          <button class="btn ghost" data-open="admin_url" type="button">Abrir en Shopify</button>
+        </div>
+        <div class="card yt">
+          <div class="yt-head">
+            <h2>YouTube</h2>
+            <button class="btn ghost small" id="revealVideo" type="button">Mostrar video</button>
+            <button class="btn dark small" id="openStudio" type="button">Abrir YouTube Studio</button>
+          </div>
           <div class="yt-grid">
-            <img class="yt-thumb" id="ytThumb" alt="Miniatura">
-            <div class="yt-texts">
-              <div class="copy"><span class="copy-label">Título</span><p id="ytTitle"></p><button type="button" data-copy="yt_title">Copiar</button></div>
-              <div class="copy tall"><span class="copy-label">Descripción</span><p id="ytDesc"></p><button type="button" data-copy="yt_description">Copiar</button></div>
-              <div class="copy"><span class="copy-label">Tags</span><p id="ytTags"></p><button type="button" data-copy="yt_tags">Copiar</button></div>
+            <img class="yt-thumb" id="jobThumb" alt="Miniatura">
+            <div class="copies">
+              <div class="copy"><span>Título</span><p id="jobTitle"></p><button type="button" data-copy="yt_title">Copiar</button></div>
+              <div class="copy tall"><span>Descripción</span><p id="jobDesc"></p><button type="button" data-copy="yt_description">Copiar</button></div>
+              <div class="copy"><span>Tags</span><p id="jobTags"></p><button type="button" data-copy="yt_tags">Copiar</button></div>
             </div>
           </div>
           <p class="note" id="thumbNote" hidden></p>
@@ -148,93 +165,73 @@
     </div>
   </main>
 
-  <!-- HISTORIAL -->
-  <main class="view" id="view-historial" hidden>
-    <div class="list-wrap">
-      <h1 class="page-title">Historial</h1>
-      <ul class="history" id="history"></ul>
-      <p class="empty" id="historyEmpty" hidden>Todavía no subiste ningún beat desde acá.</p>
-    </div>
-  </main>
-
   <!-- AJUSTES -->
-  <main class="view" id="view-ajustes" hidden>
-    <form class="settings" id="settingsForm" autocomplete="off">
-      <h1 class="page-title">Ajustes</h1>
+  <main class="view wide" id="view-ajustes" hidden>
+    <form class="col" id="settingsForm" autocomplete="off">
+      <header class="head"><h1 class="title">Ajustes</h1></header>
 
-      <section class="set">
+      <section class="card set">
         <h2>Shopify</h2>
-        <p class="help">App creada en el Dev Dashboard de Shopify, instalada en tu tienda.</p>
-        <div class="row two">
+        <div class="grid-2">
           <div class="field"><label for="s-shop">Dominio myshopify</label><input id="s-shop" name="shop_domain"></div>
           <div class="field"><label for="s-store">URL pública de la tienda</label><input id="s-store" name="store_url"></div>
-        </div>
-        <div class="row two">
           <div class="field"><label for="s-cid">Client ID</label><input id="s-cid" name="shop_client_id"></div>
           <div class="field"><label for="s-csec">Client secret</label><input id="s-csec" type="password" data-secret="shopify" placeholder="Sin cargar"></div>
         </div>
       </section>
 
-      <section class="set">
+      <section class="card set">
         <h2>Cloudflare R2</h2>
-        <p class="help">Token de API de R2 con permiso de lectura y escritura sobre el bucket.</p>
-        <div class="row two">
+        <div class="grid-2">
           <div class="field"><label for="s-acc">Account ID</label><input id="s-acc" name="r2_account_id"></div>
           <div class="field"><label for="s-bucket">Bucket</label><input id="s-bucket" name="r2_bucket"></div>
-        </div>
-        <div class="row two">
           <div class="field"><label for="s-kid">Access Key ID</label><input id="s-kid" name="r2_access_key_id"></div>
           <div class="field"><label for="s-ksec">Secret Access Key</label><input id="s-ksec" type="password" data-secret="r2" placeholder="Sin cargar"></div>
         </div>
         <div class="field"><label for="s-pub">Dominio de descargas</label><input id="s-pub" name="public_base"></div>
       </section>
 
-      <section class="set">
-        <h2>En tu PC</h2>
-        <div class="field">
-          <label for="s-out">Carpeta donde quedan los videos</label>
-          <div class="pick"><input id="s-out" name="output_dir"><button type="button" class="btn ghost" id="pickOut">Elegir</button></div>
-        </div>
-        <label class="check"><input type="checkbox" name="keep_zips"> Guardar una copia de los zips después de subirlos</label>
+      <section class="card set">
+        <h2>Léeme de los zips</h2>
+        <p class="help">Variables: {nombre} y {descargas}.</p>
+        <div class="field"><label for="s-dl">Página de descargas</label><input id="s-dl" name="downloads_url"></div>
+        <div class="field"><label for="s-rp">Texto de la licencia Premium</label><textarea id="s-rp" name="readme_premium" rows="10"></textarea></div>
+        <div class="field"><label for="s-re">Texto de la licencia Exclusiva</label><textarea id="s-re" name="readme_exclusiva" rows="10"></textarea></div>
       </section>
 
-      <section class="set">
-        <h2>Precios por defecto</h2>
-        <div class="row two">
-          <div class="field"><label for="s-pp">WAV Premium (USD)</label><input id="s-pp" name="price_premium" inputmode="decimal"></div>
-          <div class="field"><label for="s-pe">WAV + STEMS Exclusiva (USD)</label><input id="s-pe" name="price_exclusiva" inputmode="decimal"></div>
-        </div>
-      </section>
-
-      <section class="set">
-        <h2>Gif para la tienda</h2>
-        <p class="help">Se crea cuando el visual es un video.</p>
-        <div class="row three">
-          <div class="field"><label for="s-gs">Tamaño (px)</label><input id="s-gs" name="gif_size" inputmode="numeric"></div>
-          <div class="field"><label for="s-gf">Cuadros por segundo</label><input id="s-gf" name="gif_fps" inputmode="numeric"></div>
-          <div class="field"><label for="s-gm">Duración máxima (s)</label><input id="s-gm" name="gif_max_secs" inputmode="numeric"></div>
-        </div>
-      </section>
-
-      <section class="set">
+      <section class="card set">
         <h2>Textos de YouTube</h2>
         <p class="help">Variables: {nombre} {artista} {artista_tag} {bpm} {key} {genero} {generos} {mood} {instrumentos} {link} {tienda} {premium} {exclusiva}</p>
         <div class="field"><label for="s-ytt">Título</label><input id="s-ytt" name="yt_title"></div>
-        <div class="field"><label for="s-ytd">Descripción</label><textarea id="s-ytd" name="yt_description" rows="14"></textarea></div>
-        <div class="field"><label for="s-ytg">Tags (separados por coma)</label><textarea id="s-ytg" name="yt_tags" rows="3"></textarea></div>
+        <div class="field"><label for="s-ytd">Descripción</label><textarea id="s-ytd" name="yt_description" rows="12"></textarea></div>
+        <div class="field"><label for="s-ytg">Tags</label><textarea id="s-ytg" name="yt_tags" rows="3"></textarea></div>
+      </section>
+
+      <section class="card set">
+        <h2>En tu PC y precios</h2>
+        <div class="field">
+          <label for="s-out">Carpeta donde quedan los videos</label>
+          <div class="pick"><input id="s-out" name="output_dir"><button type="button" class="btn ghost small" id="pickOut">Elegir</button></div>
+        </div>
+        <label class="check"><input type="checkbox" name="keep_zips"> Guardar una copia de los zips después de subirlos</label>
+        <div class="grid-3">
+          <div class="field"><label for="s-pp">Premium (USD)</label><input id="s-pp" name="price_premium" inputmode="decimal"></div>
+          <div class="field"><label for="s-pe">Exclusiva (USD)</label><input id="s-pe" name="price_exclusiva" inputmode="decimal"></div>
+          <div class="field"><label for="s-gs">Gif de la tienda (px)</label><input id="s-gs" name="gif_size" inputmode="numeric"></div>
+        </div>
       </section>
 
       <footer class="set-foot">
         <ul class="checks" id="checks"></ul>
         <button type="button" class="btn ghost" id="testBtn">Probar conexiones</button>
-        <button type="submit" class="btn primary">Guardar</button>
+        <button type="submit" class="btn dark">Guardar</button>
       </footer>
     </form>
   </main>
+</div>
 
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <div class="dropveil" id="dropveil" aria-hidden="true"></div>
-
-  <script src="app.js"></script>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="dropveil" aria-hidden="true"></div>
+<script src="app.js"></script>
 </body>
 </html>

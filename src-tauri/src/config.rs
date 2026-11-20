@@ -29,6 +29,10 @@ pub struct Settings {
     pub yt_title: String,
     pub yt_description: String,
     pub yt_tags: String,
+    // Léeme.txt dentro de los zips
+    pub downloads_url: String,
+    pub readme_premium: String,
+    pub readme_exclusiva: String,
 }
 
 impl Default for Settings {
@@ -52,6 +56,9 @@ impl Default for Settings {
             gif_max_secs: 8,
             yt_title: "{artista} Type Beat - \"{nombre}\"".into(),
             yt_description: DEFAULT_DESCRIPTION.into(),
+            downloads_url: "https://alexgareis.com/pages/descargas".into(),
+            readme_premium: README_PREMIUM.into(),
+            readme_exclusiva: README_EXCLUSIVA.into(),
             yt_tags: "{artista} type beat, {artista} instrumental, {genero} type beat, {genero} beat, beat {mood}, instrumental {genero}, prod alex gareis, alex gareis".into(),
         }
     }
@@ -74,6 +81,30 @@ Soy Alex, productor. Si grabas sobre este beat, mándame la canción: me encanta
 ⚠️ Este beat no es de uso libre. Para publicar una canción con él hace falta una licencia.
 
 #typebeat #instrumental #{artista_tag}typebeat";
+
+const README_PREMIUM: &str = "¡Gracias por tu compra de \"{nombre}\"! (WAV Premium)
+
+Descarga tu licencia aquí → {descargas}
+Se ingresa con el mismo email de la compra.
+
+Esta licencia cubre hasta 500.000 reproducciones acumuladas.
+Si la canción crece o se quiere el beat en exclusiva, se puede
+pasar a la licencia Exclusiva: escríbeme y lo resolvemos.
+
+Estoy a disposición para lo que haga falta :)
+WhatsApp → wa.me/543436108116";
+
+const README_EXCLUSIVA: &str = "¡Gracias por tu compra de \"{nombre}\"! (WAV + STEMS Exclusiva)
+
+Descarga tu licencia aquí → {descargas}
+Se ingresa con el mismo email de la compra.
+
+Desde ahora este beat queda en exclusiva para tu proyecto:
+ya salió de la tienda y nadie más puede comprarlo.
+Los stems están en la carpeta STEMS.
+
+Estoy a disposición para lo que haga falta :)
+WhatsApp → wa.me/543436108116";
 
 fn dirs_videos() -> PathBuf {
     if let Some(p) = std::env::var_os("USERPROFILE") {
