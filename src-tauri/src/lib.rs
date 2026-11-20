@@ -5,6 +5,7 @@ mod media;
 mod naming;
 mod r2;
 mod shopify;
+mod youtube;
 
 use config::Settings;
 use job::{BeatInput, Job};
@@ -31,6 +32,9 @@ struct SettingsView {
     settings: Settings,
     has_shopify_secret: bool,
     has_r2_secret: bool,
+    has_yt_secret: bool,
+    yt_connected: bool,
+    version: String,
 }
 
 #[tauri::command]
@@ -39,6 +43,9 @@ fn get_settings(app: AppHandle) -> SettingsView {
         settings: config::load(&config_dir(&app)),
         has_shopify_secret: config::get_secret(config::SECRET_SHOPIFY).is_some(),
         has_r2_secret: config::get_secret(config::SECRET_R2).is_some(),
+        has_yt_secret: config::get_secret(config::SECRET_YT_CLIENT).is_some(),
+        yt_connected: youtube::is_connected(),
+        version: app.package_info().version.to_string(),
     }
 }
 
@@ -48,6 +55,7 @@ fn save_settings(
     settings: Settings,
     shopify_secret: Option<String>,
     r2_secret: Option<String>,
+    yt_secret: Option<String>,
 ) -> Res<()> {
     config::save(&config_dir(&app), &settings).map_err(err)?;
     if let Some(s) = shopify_secret.filter(|s| !s.is_empty()) {
@@ -56,7 +64,91 @@ fn save_settings(
     if let Some(s) = r2_secret.filter(|s| !s.is_empty()) {
         config::set_secret(config::SECRET_R2, s.trim()).map_err(err)?;
     }
+    if let Some(s) = yt_secret.filter(|s| !s.is_empty()) {
+        config::set_secret(config::SECRET_YT_CLIENT, s.trim()).map_err(err)?;
+    }
     Ok(())
+}
+
+#[tauri::command]
+async fn yt_connect(app: AppHandle) -> Res<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let s = config::load(&config_dir(&app));
+    let a = app.clone();
+    youtube::connect(&s.yt_client_id, move |url| {
+        a.opener().open_url(url, None::<&str>).map_err(|e| anyhow::anyhow!("No se pudo abrir el navegador: {e}"))
+    })
+    .await
+    .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+async fn yt_disconnect(app: AppHandle) -> Res<()> {
+    youtube::disconnect().await.map_err(err)?;
+    let c = config_dir(&app);
+    let mut s = config::load(&c);
+    s.yt_channel.clear();
+    config::save(&c, &s).map_err(err)
+}
+
+/// Sube a YouTube un beat que quedó para subir a mano (por ejemplo, de antes de conectar el canal).
+#[tauri::command]
+fn upload_youtube(app: AppHandle, handle: String) -> Res<()> {
+    if !youtube::is_connected() {
+        return Err("Primero conectá YouTube en Ajustes".into());
+    }
+    let mut j = job::load_job(&data_dir(&app), &handle).ok_or("No se encontró el trabajo")?;
+    if j.running {
+        return Err("Ese beat se está subiendo".into());
+    }
+    if let Some(st) = j.steps.get_mut("youtube") {
+        *st = job::StepState { status: "pendiente".into(), ..Default::default() };
+    }
+    spawn(app, j);
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct UpdateInfo {
+    version: String,
+    notes: String,
+}
+
+#[tauri::command]
+async fn check_update(app: AppHandle) -> Res<Option<UpdateInfo>> {
+    use tauri_plugin_updater::UpdaterExt;
+    let u = app.updater().map_err(err)?.check().await.map_err(|e| format!("No se pudo buscar actualizaciones: {e}"))?;
+    Ok(u.map(|u| UpdateInfo { version: u.version.clone(), notes: u.body.clone().unwrap_or_default() }))
+}
+
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Res<()> {
+    use tauri::Emitter;
+    use tauri_plugin_updater::UpdaterExt;
+    let data = data_dir(&app);
+    if job::list_jobs(&data).iter().any(|j| j.running) {
+        return Err("Hay un beat subiéndose. Esperá a que termine para actualizar.".into());
+    }
+    let u = app
+        .updater()
+        .map_err(err)?
+        .check()
+        .await
+        .map_err(err)?
+        .ok_or("Ya tenés la última versión")?;
+    let a = app.clone();
+    let mut got = 0usize;
+    u.download_and_install(
+        move |chunk, total| {
+            got += chunk;
+            let p = total.map(|t| got as f64 / t.max(1) as f64).unwrap_or(0.0);
+            let _ = a.emit("actualizacion", p);
+        },
+        || {},
+    )
+    .await
+    .map_err(|e| format!("No se pudo instalar la actualización: {e}"))?;
+    app.restart();
 }
 
 #[derive(Serialize)]
@@ -114,7 +206,7 @@ async fn test_connections(app: AppHandle) -> Checks {
 
 #[tauri::command]
 fn validate_input(input: BeatInput) -> Res<String> {
-    job::validate(&input).map_err(err)?;
+    job::validate_new(&input).map_err(err)?;
     Ok(naming::handle(&input.name))
 }
 
@@ -154,7 +246,7 @@ fn preview(app: AppHandle, input: BeatInput) -> Preview {
 
 #[tauri::command]
 fn start_job(app: AppHandle, input: BeatInput) -> Res<String> {
-    job::validate(&input).map_err(err)?;
+    job::validate_new(&input).map_err(err)?;
     let settings = config::load(&config_dir(&app));
     let j = job::new_job(input, &settings);
     if let Some(prev) = job::load_job(&data_dir(&app), &j.handle) {
@@ -270,6 +362,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // Si la app se cerró en medio de una subida, el trabajo queda para retomar.
             let d = data_dir(app.handle());
@@ -297,7 +390,12 @@ pub fn run() {
             forget_job,
             path_info,
             detect_wav,
-            media_duration
+            media_duration,
+            yt_connect,
+            yt_disconnect,
+            upload_youtube,
+            check_update,
+            install_update
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar la app");

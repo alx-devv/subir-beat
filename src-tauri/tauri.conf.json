@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Subir Beat",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "identifier": "com.alexgareis.subirbeat",
   "build": {
     "frontendDist": "../ui"
@@ -24,20 +24,45 @@
       "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data:; media-src 'self' asset: http://asset.localhost; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'",
       "assetProtocol": {
         "enable": true,
-        "scope": ["**"]
+        "scope": [
+          "**"
+        ]
       }
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
-    "externalBin": ["binaries/ffmpeg"],
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/ffmpeg"
+    ],
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["Spanish"],
+        "languages": [
+          "Spanish"
+        ],
         "compression": "lzma"
+      }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIwQkJBRUZDMjJGQkY2RkEKUldUNjl2c2kvSzY3SUhXYU16UXR2b1l6MUFwd1RWZWpKT2YvbWtKeVFnN3czVFU4SWFDbG8wZ1IK",
+      "endpoints": [
+        "https://github.com/alx-devv/subir-beat/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

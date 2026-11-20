@@ -33,6 +33,9 @@ const state = {
   thumbInfo: null,     // tamaño y peso de la miniatura
   duration: 0,
   settings: null,
+  ytConnected: false,
+  version: "",
+  privacy: "public",   // visibilidad elegida para este beat
   job: null,
   view: "nuevo",
 };
@@ -71,7 +74,8 @@ function show(view) {
   if (view !== "nuevo") stopPreview();
 }
 $("#newBtn").addEventListener("click", () => { show("nuevo"); $("#f-name").focus(); });
-$("#settingsBtn").addEventListener("click", () => show("ajustes"));
+const openSettings = () => show("ajustes");
+$("#settingsBtn").addEventListener("click", openSettings);
 
 /* ---------- recientes ---------- */
 
@@ -152,7 +156,48 @@ function readInput() {
     price_premium: $("#f-pp").value.trim(),
     price_exclusiva: $("#f-pe").value.trim(),
     ...state.slots,
+    ...publishFields(),
   };
+}
+
+/* ---------- publicación en YouTube ---------- */
+
+function pad(n) { return String(n).padStart(2, "0"); }
+
+function defaultWhen() {
+  const d = new Date(Date.now() + 86400000);
+  return { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, time: "18:00" };
+}
+
+function publishFields() {
+  const privacy = state.privacy;
+  if (privacy !== "scheduled") return { yt_privacy: privacy, yt_publish_at: "", yt_publish_ts: 0 };
+  const date = $("#f-date").value, time = $("#f-time").value;
+  const d = date && time ? new Date(`${date}T${time}:00`) : null;
+  if (!d || isNaN(d)) return { yt_privacy: privacy, yt_publish_at: "", yt_publish_ts: 0, yt_date: date, yt_time: time };
+  return { yt_privacy: privacy, yt_publish_at: d.toISOString().replace(".000Z", "Z"), yt_publish_ts: Math.floor(d.getTime() / 1000), yt_date: date, yt_time: time };
+}
+
+function setPrivacy(p) {
+  state.privacy = ["public", "unlisted", "scheduled"].includes(p) ? p : "public";
+  $$("#ytSeg button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.p === state.privacy)));
+  $("#ytWhen").hidden = state.privacy !== "scheduled";
+}
+
+function renderPublish() {
+  const box = $("#ytPub");
+  box.classList.toggle("off", !state.ytConnected);
+  const hint = $("#ytPubHint");
+  hint.innerHTML = "";
+  if (!state.ytConnected) {
+    hint.append("Sin conectar: el video queda para subir a mano. ");
+    const b = el("button", null, "Conectar en Ajustes");
+    b.type = "button";
+    b.addEventListener("click", openSettings);
+    hint.append(b);
+  } else if (!state.settings?.yt_audited) {
+    hint.textContent = "Hasta que Google apruebe la auditoría, YouTube lo deja en privado";
+  }
 }
 
 function writeInput(d) {
@@ -163,6 +208,10 @@ function writeInput(d) {
   $("#f-pp").value = d.price_premium || state.settings?.price_premium || "49";
   $("#f-pe").value = d.price_exclusiva || state.settings?.price_exclusiva || "125";
   state.chips = { genero: d.generos || [], mood: d.moods || [], instr: d.instruments || [] };
+  const w = defaultWhen();
+  $("#f-date").value = d.yt_date || w.date;
+  $("#f-time").value = d.yt_time || w.time;
+  setPrivacy(d.yt_privacy || state.settings?.yt_privacy || "public");
   state.colors = d.colors || {};
   state.detected = null;
   for (const k of Object.keys(state.slots)) setSlot(k, d[k] || "", true);
@@ -521,7 +570,7 @@ function renderJob() {
   $("#jobName").textContent = j.input.name;
   const done = STEP_ORDER.every((s) => j.steps?.[s]?.status === "listo");
   $("#jobSub").textContent = j.running ? "Subiendo. Podés seguir con otra cosa mientras tanto."
-    : done ? "Publicado. Falta solo subir el video en YouTube Studio."
+    : done ? (j.yt_auto ? "Publicado en la tienda y en YouTube." : "Publicado. Falta solo subir el video en YouTube Studio.")
       : j.error ? "Se detuvo antes de terminar." : "";
 
   const ol = $("#steps");
@@ -552,6 +601,12 @@ function renderJob() {
     const img = $("#jobThumb");
     img.hidden = !j.thumbnail;
     if (j.thumbnail) img.src = `${src(j.thumbnail)}?v=${j.created}`;
+    $("#copyYtLink").hidden = !j.yt_auto;
+    $("#uploadYt").hidden = j.yt_auto || !state.ytConnected;
+    $("#revealVideo").hidden = !!j.yt_auto;
+    $("#openStudio").textContent = j.yt_auto ? "Abrir en YouTube Studio" : "Abrir YouTube Studio";
+    $("#ytNote").hidden = !j.yt_note;
+    $("#ytNote").textContent = j.yt_note || "";
     $("#thumbNote").hidden = !j.thumbnail_note;
     $("#thumbNote").textContent = j.thumbnail_note ? `Miniatura: ${j.thumbnail_note}` : "";
   }
@@ -585,7 +640,23 @@ $$("[data-copy]").forEach((b) => b.addEventListener("click", async () => {
   setTimeout(() => { b.textContent = "Copiar"; b.classList.remove("done"); }, 1400);
 }));
 $("#revealVideo").addEventListener("click", () => { if (state.job?.video) T.opener.revealItemInDir(state.job.video); });
+$("#copyYtLink").addEventListener("click", async () => {
+  if (!state.job?.yt_url) return;
+  await T.clipboardManager.writeText(state.job.yt_url);
+  toast("Link copiado");
+});
+$("#uploadYt").addEventListener("click", async () => {
+  try {
+    await invoke("upload_youtube", { handle: state.job.handle });
+    state.job.running = true;
+    renderJob();
+  } catch (e) { toast(String(e)); }
+});
 $("#openStudio").addEventListener("click", async () => {
+  if (state.job?.yt_auto && state.job.yt_video_id) {
+    T.opener.openUrl(`https://studio.youtube.com/video/${state.job.yt_video_id}/edit`);
+    return;
+  }
   if (state.job?.yt_title) await T.clipboardManager.writeText(state.job.yt_title);
   if (state.job?.video) T.opener.revealItemInDir(state.job.video);
   T.opener.openUrl("https://www.youtube.com/upload");
@@ -597,6 +668,8 @@ $("#openStudio").addEventListener("click", async () => {
 async function loadSettings() {
   const v = await invoke("get_settings");
   state.settings = v.settings;
+  state.ytConnected = v.yt_connected;
+  state.version = v.version;
   return v;
 }
 
@@ -610,12 +683,16 @@ async function loadSettingsForm() {
   }
   $('[data-secret="shopify"]').placeholder = v.has_shopify_secret ? "Guardado (escribí para cambiarlo)" : "Sin cargar";
   $('[data-secret="r2"]').placeholder = v.has_r2_secret ? "Guardado (escribí para cambiarlo)" : "Sin cargar";
+  $('[data-secret="yt"]').placeholder = v.has_yt_secret ? "Guardado (escribí para cambiarlo)" : "Sin cargar";
+  renderConn();
+  $("#verText").textContent = `Subir Beat ${v.version}`;
   $$("[data-secret]").forEach((e) => (e.value = ""));
 }
 
-$("#settingsForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const f = e.target;
+$("#settingsForm").addEventListener("submit", (e) => { e.preventDefault(); saveSettingsForm(); });
+
+async function saveSettingsForm(quiet) {
+  const f = $("#settingsForm");
   const s = { ...state.settings };
   for (const k of Object.keys(s)) {
     const field = f.elements[k];
@@ -625,12 +702,14 @@ $("#settingsForm").addEventListener("submit", async (e) => {
     else s[k] = field.value.trim();
   }
   try {
-    await invoke("save_settings", { settings: s, shopifySecret: $('[data-secret="shopify"]').value, r2Secret: $('[data-secret="r2"]').value });
+    await invoke("save_settings", { settings: s, shopifySecret: $('[data-secret="shopify"]').value, r2Secret: $('[data-secret="r2"]').value, ytSecret: $('[data-secret="yt"]').value });
     await loadSettingsForm();
     refreshPreview();
-    toast("Ajustes guardados");
-  } catch (err) { toast(String(err)); }
-});
+    renderPublish();
+    if (!quiet) toast("Ajustes guardados");
+    return true;
+  } catch (err) { toast(String(err)); return false; }
+}
 
 $("#testBtn").addEventListener("click", async () => {
   const ul = $("#checks");
@@ -648,6 +727,76 @@ $("#pickOut").addEventListener("click", async () => {
   if (p) $("#s-out").value = p;
 });
 
+function renderConn() {
+  const on = state.ytConnected;
+  $("#ytConn .cdot").classList.toggle("on", on);
+  const t = $("#ytConnText");
+  t.textContent = "";
+  if (on && state.settings?.yt_channel) {
+    t.append("Conectado como ");
+    t.append(el("b", null, state.settings.yt_channel));
+  } else t.textContent = on ? "Conectado" : "Sin conectar";
+  $("#ytConnBtn").textContent = on ? "Desconectar" : "Conectar con YouTube";
+}
+
+$("#ytConnBtn").addEventListener("click", async () => {
+  const btn = $("#ytConnBtn");
+  if (state.ytConnected) {
+    try { await invoke("yt_disconnect"); } catch (e) { toast(String(e)); }
+    await loadSettingsForm();
+    renderPublish();
+    return;
+  }
+  // Guarda primero lo que haya escrito (ID y secreto) para usarlo al conectar.
+  if (!(await saveSettingsForm(true))) return;
+  btn.disabled = true;
+  btn.textContent = "Esperando el navegador…";
+  try {
+    await invoke("yt_connect");
+    toast("YouTube conectado");
+  } catch (e) { toast(String(e)); }
+  btn.disabled = false;
+  await loadSettingsForm();
+  renderPublish();
+});
+
+/* ---------- actualizaciones ---------- */
+
+async function checkUpdate(manual) {
+  const btn = $("#updBtn");
+  if (manual) { btn.disabled = true; btn.textContent = "Buscando…"; }
+  try {
+    const u = await invoke("check_update");
+    if (u) {
+      $("#updText").innerHTML = "";
+      $("#updText").append("Hay una versión nueva: ", el("b", null, u.version));
+      if (u.notes) $("#upd").title = u.notes;
+      $("#upd").hidden = false;
+      if (manual) $("#verText").textContent = `Subir Beat ${state.version} · Hay una versión nueva: ${u.version}`;
+    } else if (manual) {
+      $("#verText").textContent = `Subir Beat ${state.version} · Al día`;
+    }
+  } catch (e) {
+    if (manual) toast(String(e));
+  }
+  if (manual) { btn.disabled = false; btn.textContent = "Buscar actualizaciones"; }
+}
+
+$("#updBtn").addEventListener("click", () => checkUpdate(true));
+$("#updLater").addEventListener("click", () => ($("#upd").hidden = true));
+$("#updInstall").addEventListener("click", async () => {
+  const b = $("#updInstall");
+  b.disabled = true;
+  b.textContent = "Descargando…";
+  try {
+    await invoke("install_update");
+  } catch (e) {
+    toast(String(e));
+    b.disabled = false;
+    b.textContent = "Instalar y reiniciar";
+  }
+});
+
 /* ---------- inicio ---------- */
 
 async function main() {
@@ -659,11 +808,14 @@ async function main() {
   $("#f-bpm").addEventListener("input", (e) => (e.target.value = e.target.value.replace(/\D/g, "")));
   $$("#beatForm input, #beatForm select").forEach((e) => e.addEventListener("input", changed));
   $("#beatForm").addEventListener("submit", (e) => e.preventDefault());
+  $$("#ytSeg button").forEach((b) => b.addEventListener("click", () => { setPrivacy(b.dataset.p); changed(); }));
+  $("#ytTz").textContent = `hora de tu PC (${Intl.DateTimeFormat().resolvedOptions().timeZone.split("/").pop().replace(/_/g, " ")})`;
 
   await loadSettings();
   writeInput(store.get("borrador") || {});
   setPreview("yt");
   refreshPreview();
+  renderPublish();
   await renderRecent();
   await initDragDrop();
 
@@ -672,6 +824,8 @@ async function main() {
     if (!e.payload.running) renderRecent();
   });
   await T.event.listen("avance", (e) => onProgress(e.payload));
+  await T.event.listen("actualizacion", (e) => { $("#updInstall").textContent = `Descargando ${Math.round(e.payload * 100)}%`; });
+  setTimeout(() => checkUpdate(false), 2500);
 
   const s = state.settings;
   if (!s.shop_client_id || !s.r2_account_id || !s.r2_access_key_id) toast("Falta configurar las conexiones en Ajustes");

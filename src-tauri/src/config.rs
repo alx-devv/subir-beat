@@ -26,6 +26,13 @@ pub struct Settings {
     pub gif_fps: u32,
     pub gif_max_secs: u32,
     // YouTube
+    pub yt_client_id: String,
+    /// Nombre del canal, se completa con la primera subida.
+    pub yt_channel: String,
+    /// public | unlisted | scheduled
+    pub yt_privacy: String,
+    /// Google ya aprobó la auditoría: los videos respetan la visibilidad elegida.
+    pub yt_audited: bool,
     pub yt_title: String,
     pub yt_description: String,
     pub yt_tags: String,
@@ -54,6 +61,10 @@ impl Default for Settings {
             gif_size: 600,
             gif_fps: 15,
             gif_max_secs: 8,
+            yt_client_id: String::new(),
+            yt_channel: String::new(),
+            yt_privacy: "public".into(),
+            yt_audited: false,
             yt_title: "{artista} Type Beat - \"{nombre}\"".into(),
             yt_description: DEFAULT_DESCRIPTION.into(),
             downloads_url: "https://alexgareis.com/pages/descargas".into(),
@@ -136,6 +147,8 @@ pub fn save(config_dir: &PathBuf, s: &Settings) -> anyhow::Result<()> {
 // Secretos: guardados en el Administrador de credenciales de Windows.
 pub const SECRET_SHOPIFY: &str = "shopify_client_secret";
 pub const SECRET_R2: &str = "r2_secret_access_key";
+pub const SECRET_YT_CLIENT: &str = "youtube_client_secret";
+pub const SECRET_YT_REFRESH: &str = "youtube_refresh_token";
 
 pub fn get_secret(name: &str) -> Option<String> {
     keyring::Entry::new(KEYRING_SERVICE, name)

@@ -5,6 +5,7 @@ use crate::media::{self, VisualKind};
 use crate::naming;
 use crate::r2::R2;
 use crate::shopify::Shopify;
+use crate::youtube;
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -12,7 +13,7 @@ use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -32,6 +33,11 @@ pub struct BeatInput {
     pub mp3: String,
     pub visual: String,
     pub thumbnail: String,
+    /// public | unlisted | scheduled (vacío = el de Ajustes)
+    pub yt_privacy: String,
+    /// Fecha programada en UTC (RFC 3339) y en segundos, para validarla.
+    pub yt_publish_at: String,
+    pub yt_publish_ts: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -64,6 +70,15 @@ pub struct Job {
     pub yt_title: String,
     pub yt_description: String,
     pub yt_tags: String,
+    /// Sesión de subida reanudable de YouTube y resultado.
+    pub yt_upload_url: String,
+    pub yt_video_id: String,
+    pub yt_url: String,
+    pub yt_thumb_ok: bool,
+    /// Nota para mostrar junto al resultado (privado por auditoría, miniatura, etc.).
+    pub yt_note: String,
+    /// Se subió sola (true) o quedó para subir a mano en Studio (false).
+    pub yt_auto: bool,
 }
 
 pub const STEPS: [&str; 7] = ["archivos", "bucket", "web", "shopify", "publicar", "video", "youtube"];
@@ -116,6 +131,15 @@ pub fn validate(input: &BeatInput) -> Result<()> {
     }
     if price(&input.price_premium).is_none() || price(&input.price_exclusiva).is_none() {
         bail!("Revisá los precios");
+    }
+    Ok(())
+}
+
+/// Al empezar un beat nuevo, además: la fecha programada tiene que estar en el futuro.
+pub fn validate_new(input: &BeatInput) -> Result<()> {
+    validate(input)?;
+    if input.yt_privacy == "scheduled" && (input.yt_publish_at.is_empty() || input.yt_publish_ts < now() + 10 * 60) {
+        bail!("La fecha programada de YouTube tiene que ser al menos 10 minutos en el futuro");
     }
     Ok(())
 }
@@ -694,17 +718,17 @@ pub fn clean_tags(raw: &str) -> String {
 }
 
 async fn step_youtube(ctx: &Arc<Ctx>, settings: &Settings, input: &BeatInput, out_dir: &Path) -> Result<()> {
-    ctx.step("youtube", "en_curso", "Preparando textos y miniatura", 0.5).await;
+    if ctx.is_done("youtube").await {
+        return Ok(());
+    }
+    ctx.step("youtube", "en_curso", "Preparando textos y miniatura", 0.0).await;
     let handle = ctx.job.lock().await.handle.clone();
     let store = settings.store_url.trim_end_matches('/');
     let product_url = ctx.job.lock().await.product_url.clone();
     let link = format!("{product_url}?utm_source=youtube&utm_medium=video&utm_campaign={handle}");
-    let mut title = fill(&settings.yt_title, input, &link, store);
-    if title.chars().count() > 100 {
-        title = title.chars().take(100).collect();
-    }
-    let description: String = fill(&settings.yt_description, input, &link, store).chars().take(5000).collect();
-    let tags = clean_tags(&fill(&settings.yt_tags, input, &link, store));
+    let title = youtube::clean_text(&fill(&settings.yt_title, input, &link, store), 100);
+    let description = youtube::clean_text(&fill(&settings.yt_description, input, &link, store), 5000);
+    let tags = youtube::tag_list(&clean_tags(&fill(&settings.yt_tags, input, &link, store))).join(", ");
 
     let (thumb, note) = if !input.thumbnail.is_empty() && Path::new(&input.thumbnail).exists() {
         let (p, n) = media::prepare_thumbnail(Path::new(&input.thumbnail), out_dir).await?;
@@ -714,16 +738,102 @@ async fn step_youtube(ctx: &Arc<Ctx>, settings: &Settings, input: &BeatInput, ou
     };
     let txt = format!("TÍTULO\n{title}\n\nDESCRIPCIÓN\n{description}\n\nTAGS\n{tags}\n");
     std::fs::write(out_dir.join("youtube.txt"), txt)?;
-    let (t2, n2, d2, ta2) = (thumb, note, description, tags);
+    {
+        let (t, d, ta, th, n) = (title.clone(), description.clone(), tags.clone(), thumb.clone(), note);
+        ctx.update(move |j| {
+            j.yt_title = t;
+            j.yt_description = d;
+            j.yt_tags = ta;
+            j.thumbnail = th;
+            j.thumbnail_note = n;
+        })
+        .await;
+    }
+
+    // Sin conexión con YouTube: queda listo para subir a mano, como antes.
+    if !youtube::is_connected() {
+        ctx.update(|j| j.yt_auto = false).await;
+        ctx.step("youtube", "listo", "Todo listo para subir en YouTube Studio", 1.0).await;
+        return Ok(());
+    }
+
+    let video = PathBuf::from(&ctx.job.lock().await.video);
+    let size = std::fs::metadata(&video).context("No se encontró el video renderizado")?.len();
+    let mut privacy = if input.yt_privacy.is_empty() { settings.yt_privacy.clone() } else { input.yt_privacy.clone() };
+    let mut late = false;
+    if privacy == "scheduled" && input.yt_publish_ts < now() + 5 * 60 {
+        // Se retomó después de la fecha programada: queda privado para publicarlo a mano.
+        privacy = "private".into();
+        late = true;
+    }
+    let mut yt = youtube::YouTube::new(&settings.yt_client_id, reqwest::Client::new()).await?;
+
+    let mut result = None;
+    for _ in 0..2 {
+        let mut session = ctx.job.lock().await.yt_upload_url.clone();
+        if session.is_empty() {
+            let meta = youtube::metadata(&title, &description, &tags, &privacy, &input.yt_publish_at);
+            session = yt.start_upload(&meta, size).await?;
+            let s2 = session.clone();
+            ctx.update(move |j| j.yt_upload_url = s2).await;
+        }
+        let c = ctx.clone();
+        let report = move |done: u64, total: u64| {
+            let mb = |b: u64| b as f64 / 1_048_576.0;
+            c.progress("youtube", &format!("Subiendo video · {:.0} de {:.0} MB", mb(done), mb(total)), done as f64 / total.max(1) as f64)
+        };
+        match yt.upload(&session, &video, &report).await? {
+            Some(v) => { result = Some(v); break; }
+            // La sesión venció (dura una semana): se abre una nueva.
+            None => ctx.update(|j| j.yt_upload_url.clear()).await,
+        }
+    }
+    let v = result.ok_or_else(|| anyhow!("YouTube no aceptó la subida. Probá retomar."))?;
+    let id = v["id"].as_str().unwrap_or_default().to_string();
+    if id.is_empty() {
+        bail!("YouTube no devolvió el video subido");
+    }
+    let channel = v.pointer("/snippet/channelTitle").and_then(|c| c.as_str()).unwrap_or_default().to_string();
+    if !channel.is_empty() && channel != settings.yt_channel {
+        let cfg = ctx.app.path().app_config_dir().unwrap_or_default();
+        let mut s = config::load(&cfg);
+        s.yt_channel = channel;
+        let _ = config::save(&cfg, &s);
+    }
+
+    let mut notes = Vec::new();
+    if late {
+        notes.push("La fecha programada ya había pasado, así que el video quedó privado.".to_string());
+    }
+    let mut thumb_ok = false;
+    if !thumb.is_empty() {
+        ctx.progress("youtube", "Poniendo la miniatura", 1.0);
+        match yt.set_thumbnail(&id, Path::new(&thumb)).await {
+            Ok(()) => thumb_ok = true,
+            Err(e) => notes.push(format!("La miniatura no se pudo poner: {e:#} Subila a mano en Studio.")),
+        }
+    }
+    if !settings.yt_audited {
+        notes.push("Mientras Google no apruebe la auditoría, YouTube deja los videos en privado. Cambiale la visibilidad desde YouTube Studio.".into());
+    }
+    let url = format!("https://youtu.be/{id}");
+    let detail = match privacy.as_str() {
+        "scheduled" => "Video subido y programado",
+        "unlisted" => "Video subido como oculto",
+        "private" => "Video subido como privado",
+        _ => "Video subido",
+    };
+    let (u, i, n) = (url, id, notes.join(" "));
     ctx.update(move |j| {
-        j.yt_title = title;
-        j.yt_description = d2;
-        j.yt_tags = ta2;
-        j.thumbnail = t2;
-        j.thumbnail_note = n2;
+        j.yt_video_id = i;
+        j.yt_url = u;
+        j.yt_note = n;
+        j.yt_thumb_ok = thumb_ok;
+        j.yt_auto = true;
+        j.yt_upload_url.clear();
     })
     .await;
-    ctx.step("youtube", "listo", "Todo listo para subir en YouTube Studio", 1.0).await;
+    ctx.step("youtube", "listo", detail, 1.0).await;
     Ok(())
 }
 

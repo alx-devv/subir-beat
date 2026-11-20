@@ -1,0 +1,5 @@
+Versión 3.0.0
+- Sube el video a YouTube solo, con miniatura, título, descripción y tags.
+- Elegís si el video sale público, oculto o programado.
+- Si se corta internet, la subida a YouTube se retoma desde donde quedó.
+- Botón "Buscar actualizaciones" en Ajustes y aviso al abrir la app cuando hay una versión nueva.

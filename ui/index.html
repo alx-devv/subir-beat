@@ -57,6 +57,23 @@
         <button type="button" class="file" data-slot="thumbnail"><span class="ico"><svg viewBox="0 0 16 16"><rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><path d="M6.5 6.2v3.6L9.8 8z"/></svg></span><span class="fname">Miniatura</span><span class="fval" data-empty="1280 × 720">1280 × 720</span><span class="dot"></span></button>
       </section>
 
+      <section class="card yt-pub" id="ytPub">
+        <div class="yt-pub-head">
+          <p class="lbl">Publicación en YouTube</p>
+          <p class="soft" id="ytPubHint"></p>
+        </div>
+        <div class="seg" role="radiogroup" aria-label="Visibilidad en YouTube" id="ytSeg">
+          <button type="button" role="radio" data-p="public">Pública</button>
+          <button type="button" role="radio" data-p="unlisted">Oculta</button>
+          <button type="button" role="radio" data-p="scheduled">Programada</button>
+        </div>
+        <div class="when" id="ytWhen" hidden>
+          <label class="sr" for="f-date">Día</label><input type="date" id="f-date">
+          <label class="sr" for="f-time">Hora</label><input type="time" id="f-time" step="900">
+          <span class="soft" id="ytTz"></span>
+        </div>
+      </section>
+
       <section class="card grid-2">
         <div class="field">
           <label for="f-pp">WAV Premium</label>
@@ -149,8 +166,11 @@
           <div class="yt-head">
             <h2>YouTube</h2>
             <button class="btn ghost small" id="revealVideo" type="button">Mostrar video</button>
+            <button class="btn ghost small" id="copyYtLink" type="button" hidden>Copiar link</button>
+            <button class="btn accent small" id="uploadYt" type="button" hidden>Subir a YouTube</button>
             <button class="btn dark small" id="openStudio" type="button">Abrir YouTube Studio</button>
           </div>
+          <p class="yt-note" id="ytNote" hidden></p>
           <div class="yt-grid">
             <img class="yt-thumb" id="jobThumb" alt="Miniatura">
             <div class="copies">
@@ -200,6 +220,26 @@
       </section>
 
       <section class="card set">
+        <h2>YouTube</h2>
+        <div class="grid-2">
+          <div class="field"><label for="s-ycid">ID de cliente</label><input id="s-ycid" name="yt_client_id" placeholder="….apps.googleusercontent.com"></div>
+          <div class="field"><label for="s-ysec">Secreto de cliente</label><input id="s-ysec" type="password" data-secret="yt" placeholder="Sin cargar"></div>
+        </div>
+        <div class="conn" id="ytConn">
+          <span class="cdot" aria-hidden="true"></span>
+          <p id="ytConnText">Sin conectar</p>
+          <button type="button" class="btn ghost small" id="ytConnBtn">Conectar con YouTube</button>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label for="s-ypriv">Visibilidad por defecto</label>
+            <select id="s-ypriv" name="yt_privacy"><option value="public">Pública</option><option value="unlisted">Oculta</option><option value="scheduled">Programada</option></select>
+          </div>
+        </div>
+        <label class="check"><input type="checkbox" name="yt_audited"> Google ya aprobó la auditoría (los videos respetan la visibilidad elegida)</label>
+      </section>
+
+      <section class="card set">
         <h2>Textos de YouTube</h2>
         <p class="help">Variables: {nombre} {artista} {artista_tag} {bpm} {key} {genero} {generos} {mood} {instrumentos} {link} {tienda} {premium} {exclusiva}</p>
         <div class="field"><label for="s-ytt">Título</label><input id="s-ytt" name="yt_title"></div>
@@ -221,6 +261,14 @@
         </div>
       </section>
 
+      <section class="card set">
+        <h2>Versión</h2>
+        <div class="conn">
+          <p id="verText">Subir Beat</p>
+          <button type="button" class="btn ghost small" id="updBtn">Buscar actualizaciones</button>
+        </div>
+      </section>
+
       <footer class="set-foot">
         <ul class="checks" id="checks"></ul>
         <button type="button" class="btn ghost" id="testBtn">Probar conexiones</button>
@@ -230,6 +278,12 @@
   </main>
 </div>
 
+<div class="upd" id="upd" role="status" hidden>
+  <span class="cdot on" aria-hidden="true"></span>
+  <p id="updText"></p>
+  <button type="button" class="btn ghost small" id="updLater">Más tarde</button>
+  <button type="button" class="btn accent small" id="updInstall">Instalar y reiniciar</button>
+</div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="dropveil" aria-hidden="true"></div>
 <script src="app.js"></script>

@@ -277,3 +277,29 @@ body.dragging .dropveil { opacity: 1; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* v3: publicación en YouTube */
+.yt-pub-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+.yt-pub-head .lbl { margin: 0; }
+.yt-pub-head .soft { margin: 0 0 0 auto; font-size: 12px; }
+.yt-pub-head .soft button { background: none; border: 0; padding: 0; color: var(--ink-2); text-decoration: underline; text-underline-offset: 2px; font-size: 12px; }
+.seg { display: inline-flex; border: 0.5px solid var(--line-2); border-radius: 999px; padding: 2px; background: var(--card); }
+.seg button { border: 0; background: none; border-radius: 999px; padding: 6px 14px; font-size: 12px; color: var(--ink-2); }
+.seg button:hover { color: var(--ink); }
+.seg button[aria-checked="true"] { background: var(--sel); color: var(--ink); font-weight: 500; }
+.when { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.when input { width: auto; }
+.when .soft { font-size: 12px; }
+.yt-pub.off .seg, .yt-pub.off .when { opacity: .45; pointer-events: none; }
+
+/* v3: conexión y versión en Ajustes */
+.conn { display: flex; align-items: center; gap: 10px; padding: 10px 0 2px; }
+.conn p { margin: 0 auto 0 0; color: var(--ink-2); }
+.cdot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid #CFCDC7; flex: none; }
+.cdot.on { background: var(--accent); border-color: var(--accent); }
+.yt-note { margin: -4px 0 14px; padding: 8px 12px; border-radius: var(--r); background: #F3F2EF; color: var(--ink-2); font-size: 12px; }
+
+/* v3: aviso de versión nueva */
+.upd { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 20; display: flex; align-items: center; gap: 10px; background: var(--card); border: 0.5px solid var(--line-2); border-radius: 999px; padding: 6px 6px 6px 16px; box-shadow: 0 6px 24px rgba(29, 28, 26, .08); }
+.upd p { margin: 0 6px 0 0; color: var(--ink); white-space: nowrap; }
+.upd p span { color: var(--muted); }

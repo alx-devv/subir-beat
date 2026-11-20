@@ -88,3 +88,11 @@ npx tauri dev
 ```
 
 Necesita Rust, Node 22 y `ffmpeg` en el PATH (o en `src-tauri/binaries`).
+
+## Versión 3
+
+**YouTube.** En Ajustes → YouTube cargá el ID y el secreto de cliente (están en el JSON que descargaste de Google Cloud, en `client_id` y `client_secret`), guardá y tocá "Conectar con YouTube". Se abre el navegador: elegí la cuenta del canal y aceptá. Mientras la app de Google esté en modo prueba, Google muestra un aviso de "app no verificada": tocá "Continuar". Desde ahí cada beat sube el video solo, con la miniatura y la visibilidad que elijas en el formulario. Hasta que Google apruebe la auditoría, YouTube deja los videos en privado; cuando la aprueben, marcá la casilla correspondiente en Ajustes.
+
+La conexión de YouTube en modo prueba vence a los 7 días: si la app avisa que se venció, volvé a tocar "Conectar con YouTube". Cuando Google apruebe la app, deja de vencer.
+
+**Actualizaciones.** Al abrir la app se busca una versión nueva; también está el botón "Buscar actualizaciones" en Ajustes → Versión. Las versiones se publican en GitHub Releases, firmadas: la clave privada vive en el secreto `TAURI_SIGNING_PRIVATE_KEY` del repositorio. Si esa clave se pierde, las versiones nuevas no se pueden instalar desde la app y hay que reinstalar a mano.
