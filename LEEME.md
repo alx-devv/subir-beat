@@ -96,3 +96,8 @@ Necesita Rust, Node 22 y `ffmpeg` en el PATH (o en `src-tauri/binaries`).
 La conexión de YouTube en modo prueba vence a los 7 días: si la app avisa que se venció, volvé a tocar "Conectar con YouTube". Cuando Google apruebe la app, deja de vencer.
 
 **Actualizaciones.** Al abrir la app se busca una versión nueva; también está el botón "Buscar actualizaciones" en Ajustes → Versión. Las versiones se publican en GitHub Releases, firmadas: la clave privada vive en el secreto `TAURI_SIGNING_PRIVATE_KEY` del repositorio. Si esa clave se pierde, las versiones nuevas no se pueden instalar desde la app y hay que reinstalar a mano.
+
+## Versión 3.1: mapa de artistas
+
+- **Notion:** creá una integración interna en https://www.notion.so/profile/integrations, copiá su clave y pegala en Ajustes → Mapa de artistas. Después, en la base "Contactos de la landing", menú ⋯ → Conexiones → agregá la integración. Sin ese paso Notion no deja leer la base.
+- **Búsqueda de YouTube:** usa una clave de API de un proyecto de Google aparte (no el de la subida de videos), con la YouTube Data API v3 habilitada. Cada artista medido gasta unas 200 unidades de las 10.000 diarias; las mediciones se guardan 14 días.

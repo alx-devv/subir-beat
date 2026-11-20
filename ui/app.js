@@ -67,8 +67,10 @@ const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls)
 
 function show(view) {
   state.view = view;
-  for (const v of ["nuevo", "trabajo", "ajustes"]) $(`#view-${v}`).hidden = v !== view;
+  for (const v of ["nuevo", "trabajo", "ajustes", "mapa"]) $(`#view-${v}`).hidden = v !== view;
   $("#settingsBtn").classList.toggle("on", view === "ajustes");
+  $("#mapBtn").classList.toggle("on", view === "mapa");
+  if (view === "mapa") loadMap();
   if (view !== "trabajo") $$(".recent button").forEach((b) => b.classList.remove("on"));
   if (view === "ajustes") loadSettingsForm();
   if (view !== "nuevo") stopPreview();
@@ -228,6 +230,7 @@ function changed() {
   store.set("borrador", { ...readInput(), colors: state.colors });
   renderDetect();
   refreshPreview();
+  refreshSuggestions();
 }
 
 function clearForm() {
@@ -768,6 +771,8 @@ async function loadSettingsForm() {
   $('[data-secret="shopify"]').placeholder = v.has_shopify_secret ? "Guardado (escribí para cambiarlo)" : "Sin cargar";
   $('[data-secret="r2"]').placeholder = v.has_r2_secret ? "Guardado (escribí para cambiarlo)" : "Sin cargar";
   $('[data-secret="yt"]').placeholder = v.has_yt_secret ? "Guardado (escribí para cambiarlo)" : "Sin cargar";
+  $('[data-secret="notion"]').placeholder = v.has_notion ? "Guardado (escribí para cambiarlo)" : "Sin cargar";
+  $('[data-secret="ytkey"]').placeholder = v.has_yt_key ? "Guardado (escribí para cambiarlo)" : "Sin cargar";
   renderConn();
   $("#verText").textContent = `Subir Beat ${v.version}`;
   $$("[data-secret]").forEach((e) => (e.value = ""));
@@ -786,7 +791,7 @@ async function saveSettingsForm(quiet) {
     else s[k] = field.value.trim();
   }
   try {
-    await invoke("save_settings", { settings: s, shopifySecret: $('[data-secret="shopify"]').value, r2Secret: $('[data-secret="r2"]').value, ytSecret: $('[data-secret="yt"]').value });
+    await invoke("save_settings", { settings: s, shopifySecret: $('[data-secret="shopify"]').value, r2Secret: $('[data-secret="r2"]').value, ytSecret: $('[data-secret="yt"]').value, notionSecret: $('[data-secret="notion"]').value, ytKey: $('[data-secret="ytkey"]').value });
     await loadSettingsForm();
     refreshPreview();
     renderPublish();
@@ -881,6 +886,283 @@ $("#updInstall").addEventListener("click", async () => {
   }
 });
 
+/* ---------- mapa de artistas ---------- */
+
+const GROUPS = [["rnb", "R&B y urbano"], ["rap", "Rap"], ["trap", "Trap"], ["otro", "Otros"]];
+const COUNTRY = { MX: "México", US: "EE. UU.", otro: "Otro" };
+const mapUI = { country: "", groups: new Set(), q: "", editing: null };
+const DAY = 86400;
+
+function barsEl(o) {
+  const lv = o ? o.level : 0;
+  const b = el("span", `bars b${lv}`);
+  b.append(el("i"), el("i"), el("i"));
+  b.title = o ? `${o.label}. ${o.why}` : "Sin medir";
+  return b;
+}
+
+async function loadMap() {
+  try { state.map = await invoke("artists_get"); } catch (e) { toast(String(e)); return; }
+  renderMap();
+}
+
+$("#mapBtn").addEventListener("click", () => show("mapa"));
+$("#sugMap").addEventListener("click", () => show("mapa"));
+
+function renderMap() {
+  const m = state.map;
+  if (!m) return;
+  const synced = m.synced ? new Date(m.synced * 1000).toLocaleDateString("es-AR", { day: "numeric", month: "long" }) : null;
+  $("#mapSub").textContent = `${m.artists.length} artistas` + (synced ? ` · ${m.total_requests} pedidos leídos el ${synced}` : " · todavía sin leer los pedidos de Notion");
+
+  // Lo que te piden
+  const asks = [...m.artists].filter((a) => a.requests > 0).sort((a, b) => b.requests - a.requests).slice(0, 4);
+  const box = $("#mapAsks");
+  box.innerHTML = "";
+  box.hidden = !asks.length;
+  if (asks.length) {
+    box.append(el("p", "lbl", "Lo que más te piden"));
+    const grid = el("div", "asks-grid");
+    for (const a of asks) {
+      const c = el("button", "ask");
+      c.type = "button";
+      const where = [a.requests_mx && `${a.requests_mx} de México`, a.requests_us && `${a.requests_us} de EE. UU.`].filter(Boolean).join(", ");
+      c.append(el("b", null, a.name), el("span", "req", `${a.requests} ${a.requests === 1 ? "pedido" : "pedidos"}`), el("p", null, where || "Sin país identificado"));
+      c.addEventListener("click", () => { mapUI.editing = a.id; renderMap(); });
+      grid.append(c);
+    }
+    box.append(grid);
+  }
+
+  // Filtros
+  $$("#mapCountry button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.c === mapUI.country)));
+  const gbox = $("#mapGroups");
+  if (!gbox.children.length) {
+    for (const [g, label] of GROUPS) {
+      const c = el("button", "chip", label);
+      c.type = "button";
+      c.dataset.g = g;
+      c.addEventListener("click", () => { mapUI.groups.has(g) ? mapUI.groups.delete(g) : mapUI.groups.add(g); renderMap(); });
+      gbox.append(c);
+    }
+  }
+  $$("#mapGroups .chip").forEach((c) => c.classList.toggle("on", mapUI.groups.has(c.dataset.g)));
+
+  // Tabla
+  const q = mapUI.q.trim().toLowerCase();
+  const list = m.artists
+    .filter((a) => !mapUI.country || a.country === mapUI.country)
+    .filter((a) => !mapUI.groups.size || mapUI.groups.has(a.group))
+    .filter((a) => !q || [a.name, ...a.aliases, a.style, a.vibe, a.city].join(" ").toLowerCase().includes(q))
+    .sort(rankArtists);
+  const t = $("#mapTable");
+  t.innerHTML = "";
+  const head = el("div", "mrow mhead");
+  for (const h of ["Artista", "Estilo", "Vibe e instrumentos", "BPM", "Nivel", "Oportunidad"]) head.append(el("span", null, h));
+  t.append(head);
+  if (mapUI.editing === "") t.append(editor(null));
+  for (const a of list) t.append(mapUI.editing === a.id ? editor(a) : row(a));
+  if (!list.length) t.append(el("p", "empty-row", "No hay artistas con esos filtros."));
+
+  // Pedidos sin artista del mapa
+  const un = $("#mapUnmatched");
+  un.innerHTML = "";
+  un.hidden = !m.unmatched.length;
+  if (m.unmatched.length) {
+    un.append(el("p", "lbl", `Pedidos que no nombran a nadie del mapa (${m.unmatched.length})`));
+    for (const r of m.unmatched) {
+      const li = el("div", "unm");
+      li.append(el("span", "unm-c", `${COUNTRY[r.country] || "Otro"} · ${r.date}`), el("p", null, r.text));
+      un.append(li);
+    }
+    un.append(el("p", "help", "Si alguno nombra a un artista que te sirve, sumalo con \"Agregar artista\" y la próxima lectura lo va a contar."));
+  }
+
+  // Descartados
+  const d = $("#mapDiscarded");
+  d.hidden = !m.discarded.length;
+  $("summary", d).textContent = `Descartados (${m.discarded.length})`;
+  const dl = $(".disc-list", d);
+  dl.innerHTML = "";
+  for (const a of m.discarded) {
+    const r = el("div", "disc");
+    r.append(el("span", null, a.name));
+    const b = el("button", "link", "Recuperar");
+    b.type = "button";
+    b.addEventListener("click", async () => { state.map = await invoke("artist_restore", { id: a.id }); renderMap(); refreshSuggestions(); });
+    r.append(b);
+    dl.append(r);
+  }
+}
+
+/** Orden: más pedidos, mejor oportunidad, R&B primero, menos famosos antes. */
+function rankArtists(a, b) {
+  const lv = (x) => (x.opp ? x.opp.level : 1.5);
+  const big = (x) => (/grande/i.test(x.level) ? 1 : 0);
+  const g = (x) => ({ rnb: 0, rap: 1, trap: 2 }[x.group] ?? 3);
+  return (b.requests - a.requests) || (lv(b) - lv(a)) || (big(a) - big(b)) || (g(a) - g(b)) || a.name.localeCompare(b.name);
+}
+
+function row(a) {
+  const r = el("button", "mrow");
+  r.type = "button";
+  const n = el("span", "n");
+  n.append(el("b", null, a.name));
+  if (a.requests) n.append(el("span", "req", String(a.requests)));
+  if (a.new) n.append(el("span", "newb", "nuevo"));
+  n.append(el("small", null, [COUNTRY[a.country] || "", a.city].filter(Boolean).join(" · ")));
+  const bpm = a.bpm_min ? (a.bpm_max && a.bpm_max !== a.bpm_min ? `${a.bpm_min}–${a.bpm_max}` : String(a.bpm_min)) : "—";
+  r.append(n, el("span", "muted", a.style || "—"), el("span", "muted", a.vibe || "—"), el("span", "muted", bpm), el("span", "muted", a.level || "—"), barsEl(a.opp));
+  r.addEventListener("click", () => { mapUI.editing = a.id; renderMap(); });
+  return r;
+}
+
+function editor(a) {
+  const isNew = !a;
+  a = a || { id: "", name: "", aliases: [], country: "MX", city: "", group: "rnb", style: "", vibe: "", bpm_min: 0, bpm_max: 0, level: "Emergente" };
+  const f = el("form", "medit");
+  const field = (label, input) => { const w = el("label", "mf"); w.append(el("span", null, label), input); return w; };
+  const inp = (v, ph = "") => { const i = el("input"); i.value = v ?? ""; i.placeholder = ph; return i; };
+  const sel = (v, opts) => { const s = el("select"); for (const [k, l] of opts) { const o = el("option", null, l); o.value = k; s.append(o); } s.value = v; return s; };
+  const name = inp(a.name, "Nombre"), aliases = inp(a.aliases.join(", "), "Otros nombres, separados por coma");
+  const country = sel(a.country, [["MX", "México"], ["US", "EE. UU."], ["otro", "Otro"]]), city = inp(a.city, "Ciudad");
+  const group = sel(a.group, GROUPS), style = inp(a.style, "Rap melódico con R&B"), vibe = inp(a.vibe, "Romántico, guitarras");
+  const bmin = inp(a.bpm_min || "", "80"), bmax = inp(a.bpm_max || "", "95"), level = sel(a.level, [["Emergente", "Emergente"], ["Intermedio", "Intermedio"], ["Grande", "Grande"], ["A confirmar", "A confirmar"]]);
+  if (![...level.options].some((o) => o.value === a.level)) { const o = el("option", null, a.level); o.value = a.level; level.append(o); level.value = a.level; }
+  const grid = el("div", "mgrid");
+  grid.append(field("Nombre", name), field("También aparece como", aliases), field("País", country), field("Ciudad", city), field("Grupo", group), field("Estilo", style), field("Vibe e instrumentos", vibe), field("BPM desde", bmin), field("BPM hasta", bmax), field("Nivel", level));
+  f.append(grid);
+  if (a.opp) f.append(el("p", "help", `${a.opp.label}: ${a.opp.why} (medido el ${new Date(a.opp.measured * 1000).toLocaleDateString("es-AR")})`));
+  const act = el("div", "medit-actions");
+  const btn = (t, cls, fn) => { const b = el("button", `btn small ${cls}`, t); b.type = "button"; b.addEventListener("click", fn); return b; };
+  if (!isNew) {
+    act.append(btn("Quitar del mapa", "ghost danger", async () => {
+      state.map = await invoke("artist_remove", { id: a.id });
+      mapUI.editing = null; renderMap(); refreshSuggestions();
+      toast(`${a.name} quedó en Descartados`);
+    }));
+    act.append(btn("Medir ahora", "ghost", () => measureIds([a.id])));
+  }
+  act.append(el("span", "grow"));
+  act.append(btn("Cancelar", "ghost", () => { mapUI.editing = null; renderMap(); }));
+  act.append(btn("Guardar", "accent", async () => {
+    const num = (x) => parseInt(x.value, 10) || 0;
+    const artist = { ...a, name: name.value, aliases: aliases.value.split(",").map((x) => x.trim()).filter(Boolean), country: country.value, city: city.value.trim(), group: group.value, style: style.value.trim(), vibe: vibe.value.trim(), bpm_min: num(bmin), bpm_max: num(bmax) || num(bmin), level: level.value };
+    try {
+      state.map = await invoke("artist_save", { artist });
+      mapUI.editing = null; renderMap(); refreshSuggestions();
+    } catch (e) { toast(String(e)); }
+  }));
+  f.append(act);
+  f.addEventListener("submit", (e) => e.preventDefault());
+  setTimeout(() => name.focus(), 0);
+  return f;
+}
+
+$$("#mapCountry button").forEach((b) => b.addEventListener("click", () => { mapUI.country = b.dataset.c; renderMap(); }));
+$("#mapSearch").addEventListener("input", (e) => { mapUI.q = e.target.value; renderMap(); });
+$("#mapAdd").addEventListener("click", () => { mapUI.editing = ""; renderMap(); });
+$("#mapSync").addEventListener("click", async () => {
+  const b = $("#mapSync");
+  b.disabled = true; b.textContent = "Leyendo…";
+  try {
+    state.map = await invoke("artists_sync");
+    renderMap(); refreshSuggestions();
+    toast(`Leí ${state.map.total_requests} pedidos`);
+  } catch (e) { toast(String(e)); }
+  b.disabled = false; b.textContent = "Leer pedidos de Notion";
+});
+$("#mapMeasure").addEventListener("click", () => measureIds([]));
+
+async function measureIds(ids) {
+  const b = $("#mapMeasure");
+  b.disabled = true; b.textContent = "Midiendo…";
+  try {
+    const msg = await invoke("artists_measure", { ids });
+    toast(msg);
+  } catch (e) { toast(String(e)); }
+  b.disabled = false; b.textContent = "Medir oportunidad";
+  await loadMap();
+  refreshSuggestions();
+}
+
+/* ---------- artista de referencia: comparación y sugeridos ---------- */
+
+const GENRE_GROUP = { "R&B": "rnb", Soul: "rnb", Newjazz: "rnb", POP: "rnb", "Reggaetón": "rnb", Afro: "rnb", "Hip-Hop": "rap", Trap: "trap", Plugg: "trap", Y2K: "trap" };
+
+function findArtist(name) {
+  const f = (x) => x.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  const n = f(name);
+  return state.map?.artists.find((a) => f(a.name) === n || a.aliases.some((x) => f(x) === n));
+}
+
+function renderArtistPop() {
+  const pop = $("#artPop");
+  const names = $("#f-artist").value.split(/\s+x\s+|,|&/i).map((x) => x.trim()).filter((x) => x.length >= 2).slice(0, 4);
+  pop.innerHTML = "";
+  pop.hidden = !names.length || document.activeElement !== $("#f-artist") && !pop.matches(":hover");
+  for (const name of names) {
+    const a = findArtist(name);
+    const r = el("div", "ap-row");
+    const n = el("div", "ap-n");
+    n.append(el("b", null, a ? a.name : name), el("small", null, a ? [COUNTRY[a.country], a.style].filter(Boolean).join(" · ") : "No está en el mapa"));
+    const o = a?.opp || state.oppCache?.[name.toLowerCase()];
+    r.append(n, barsEl(o));
+    if (o) r.append(el("p", "ap-why", `${o.label}. ${o.why}`));
+    else {
+      const b = el("button", "link", "Medir");
+      b.type = "button";
+      b.addEventListener("mousedown", (e) => e.preventDefault());
+      b.addEventListener("click", async () => {
+        b.textContent = "Midiendo…";
+        try {
+          const res = await invoke("artist_opportunity", { name });
+          state.oppCache = { ...(state.oppCache || {}), [name.toLowerCase()]: res };
+          if (a) await loadMapQuiet();
+        } catch (e) { toast(String(e)); }
+        renderArtistPop();
+      });
+      r.append(b);
+    }
+    pop.append(r);
+  }
+}
+
+async function loadMapQuiet() { try { state.map = await invoke("artists_get"); } catch {} }
+
+$("#f-artist").addEventListener("input", renderArtistPop);
+$("#f-artist").addEventListener("focus", renderArtistPop);
+$("#f-artist").addEventListener("blur", () => setTimeout(() => { if (!$("#artPop").matches(":hover")) $("#artPop").hidden = true; }, 150));
+
+function refreshSuggestions() {
+  const card = $("#sugCard");
+  if (!state.map) { card.hidden = true; return; }
+  const input = readInput();
+  const groups = new Set(input.generos.map((g) => GENRE_GROUP[g]).filter(Boolean));
+  if (!groups.size) groups.add("rnb");
+  const bpm = parseInt(input.bpm, 10) || 0;
+  const fits = (a) => !bpm || !a.bpm_min || [bpm, bpm * 2, Math.round(bpm / 2)].some((x) => x >= a.bpm_min - 5 && x <= (a.bpm_max || a.bpm_min) + 5);
+  const used = new Set($("#f-artist").value.split(/\s+x\s+|,/i).map((x) => x.trim().toLowerCase()));
+  const list = state.map.artists.filter((a) => groups.has(a.group) && fits(a) && !/grande/i.test(a.level) && !used.has(a.name.toLowerCase())).sort(rankArtists).slice(0, 6);
+  card.hidden = !list.length;
+  const label = [...groups].map((g) => GROUPS.find((x) => x[0] === g)?.[1]).join(" · ");
+  $("#sugLabel").textContent = `Sugeridos para ${label}${bpm ? ` · ${bpm} BPM` : ""}`;
+  const box = $("#artSug");
+  box.innerHTML = "";
+  for (const a of list) {
+    const c = el("button", `pill o${a.opp ? a.opp.level : 0}`, a.name);
+    c.type = "button";
+    c.title = a.opp ? `${a.opp.label}. ${a.opp.why}` : `${a.style}. Sin medir todavía.`;
+    c.addEventListener("click", () => {
+      const f = $("#f-artist");
+      const cur = f.value.split(/\s+x\s+/i).map((x) => x.trim()).filter(Boolean);
+      f.value = (cur.length >= 1 && cur.length < 2 ? [...cur, a.name] : [a.name]).join(" x ");
+      changed(); refreshSuggestions();
+    });
+    box.append(c);
+  }
+}
+
 /* ---------- inicio ---------- */
 
 async function main() {
@@ -901,7 +1183,13 @@ async function main() {
   refreshPreview();
   renderPublish();
   await renderRecent();
+  await loadMapQuiet();
+  refreshSuggestions();
   await initDragDrop();
+  await T.event.listen("oportunidad", (e) => {
+    const a = state.map?.artists.find((x) => x.id === e.payload.id);
+    if (a) { a.opp = e.payload.opp; if (state.view === "mapa") renderMap(); }
+  });
 
   await T.event.listen("trabajo", (e) => {
     if (state.job && e.payload.handle === state.job.handle) { state.job = e.payload; renderJob(); }

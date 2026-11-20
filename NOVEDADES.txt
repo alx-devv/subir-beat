@@ -1,7 +1,6 @@
-Versión 3.0.2
-- Ícono nuevo.
-- Un solo campo "Multimedia" (foto o video). Si es un video, elegís la miniatura entre 3 fotogramas en la vista previa.
-- Ya no hay historial: solo aparecen los beats que quedaron sin terminar, con Retomar y Descartar.
-- Si ya hay un beat con el mismo nombre en la tienda, te avisa antes de empezar y podés reemplazarlo o cambiarle el nombre.
-- Todo se revisa al tocar "Publicar beat" (conexiones, página de descargas, nombre), para que no falle en el último paso.
-- Visibilidad en YouTube: Pública u Oculta.
+Versión 3.1.0
+- Mapa de artistas (en la barra lateral): artistas de nivel intermedio de México y EE. UU. para nombrar tus type beats. Podés agregar, corregir y quitar artistas; los que quitás quedan en Descartados.
+- Lee los pedidos de "Contactos de la landing" en Notion y cuenta qué artistas te piden y desde qué país.
+- Oportunidad en azules: mide en YouTube cuánta demanda y competencia tiene "[artista] type beat".
+- En el formulario: al escribir el artista de referencia ves su oportunidad, y aparecen artistas sugeridos según el género y el BPM.
+- Título del video en minúscula, con el formato: artista type beat - "nombre" | estilo.

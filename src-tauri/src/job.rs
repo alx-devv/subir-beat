@@ -701,6 +701,14 @@ async fn step_video(ctx: &Arc<Ctx>, input: &BeatInput, out_dir: &Path) -> Result
 
 // ---------- Paso: textos y miniatura de YouTube ----------
 
+/// Título del video según la plantilla de Ajustes (en minúscula si así está configurado).
+pub fn title_for(settings: &Settings, input: &BeatInput, link: &str, store: &str) -> String {
+    let t = fill(&settings.yt_title, input, link, store);
+    // Sin géneros elegidos no queda un "|" colgando.
+    let t = t.trim().trim_end_matches('|').trim_end().to_string();
+    if settings.yt_title_lower { t.to_lowercase() } else { t }
+}
+
 pub fn fill(template: &str, input: &BeatInput, link: &str, store: &str) -> String {
     let first = |v: &Vec<String>| v.first().cloned().unwrap_or_default();
     let artist_tag: String = input
@@ -722,6 +730,7 @@ pub fn fill(template: &str, input: &BeatInput, link: &str, store: &str) -> Strin
         .replace("{bpm}", &input.bpm.to_string())
         .replace("{key}", &naming::key_short(&input.key))
         .replace("{generos}", &input.generos.join(", "))
+        .replace("{estilo}", &input.generos.iter().take(2).cloned().collect::<Vec<_>>().join(" "))
         .replace("{genero}", &first(&input.generos))
         .replace("{mood}", &first(&input.moods).to_lowercase())
         .replace("{instrumentos}", &input.instruments.join(", "))
@@ -757,7 +766,7 @@ async fn step_youtube(ctx: &Arc<Ctx>, settings: &Settings, input: &BeatInput, ou
     let store = settings.store_url.trim_end_matches('/');
     let product_url = ctx.job.lock().await.product_url.clone();
     let link = format!("{product_url}?utm_source=youtube&utm_medium=video&utm_campaign={handle}");
-    let title = youtube::clean_text(&fill(&settings.yt_title, input, &link, store), 100);
+    let title = youtube::clean_text(&title_for(settings, input, &link, store), 100);
     let description = youtube::clean_text(&fill(&settings.yt_description, input, &link, store), 5000);
     let tags = youtube::tag_list(&clean_tags(&fill(&settings.yt_tags, input, &link, store))).join(", ");
 

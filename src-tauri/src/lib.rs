@@ -6,6 +6,7 @@ mod naming;
 mod r2;
 mod shopify;
 mod youtube;
+mod artists;
 
 use config::Settings;
 use job::{BeatInput, Job};
@@ -33,6 +34,8 @@ struct SettingsView {
     has_shopify_secret: bool,
     has_r2_secret: bool,
     has_yt_secret: bool,
+    has_notion: bool,
+    has_yt_key: bool,
     yt_connected: bool,
     version: String,
 }
@@ -44,6 +47,8 @@ fn get_settings(app: AppHandle) -> SettingsView {
         has_shopify_secret: config::get_secret(config::SECRET_SHOPIFY).is_some(),
         has_r2_secret: config::get_secret(config::SECRET_R2).is_some(),
         has_yt_secret: config::get_secret(config::SECRET_YT_CLIENT).is_some(),
+        has_notion: config::get_secret(config::SECRET_NOTION).is_some(),
+        has_yt_key: config::get_secret(config::SECRET_YT_KEY).is_some(),
         yt_connected: youtube::is_connected(),
         version: app.package_info().version.to_string(),
     }
@@ -56,6 +61,8 @@ fn save_settings(
     shopify_secret: Option<String>,
     r2_secret: Option<String>,
     yt_secret: Option<String>,
+    notion_secret: Option<String>,
+    yt_key: Option<String>,
 ) -> Res<()> {
     config::save(&config_dir(&app), &settings).map_err(err)?;
     if let Some(s) = shopify_secret.filter(|s| !s.is_empty()) {
@@ -66,6 +73,12 @@ fn save_settings(
     }
     if let Some(s) = yt_secret.filter(|s| !s.is_empty()) {
         config::set_secret(config::SECRET_YT_CLIENT, s.trim()).map_err(err)?;
+    }
+    if let Some(s) = notion_secret.filter(|s| !s.is_empty()) {
+        config::set_secret(config::SECRET_NOTION, s.trim()).map_err(err)?;
+    }
+    if let Some(s) = yt_key.filter(|s| !s.is_empty()) {
+        config::set_secret(config::SECRET_YT_KEY, s.trim()).map_err(err)?;
     }
     Ok(())
 }
@@ -236,12 +249,157 @@ fn preview(app: AppHandle, input: BeatInput) -> Preview {
         mp3: n.mp3,
         premium: n.premium,
         exclusiva: n.exclusiva,
-        title: job::fill(&s.yt_title, &input, &product_url, store),
+        title: job::title_for(&s, &input, &product_url, store),
         description: job::fill(&s.yt_description, &input, &product_url, store),
         tags: job::clean_tags(&job::fill(&s.yt_tags, &input, &product_url, store)),
         product_url,
         handle,
     }
+}
+
+// ---------- Mapa de artistas ----------
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+#[tauri::command]
+fn artists_get(app: AppHandle) -> artists::Store {
+    artists::load(&data_dir(&app))
+}
+
+/// Crea o actualiza un artista. Sin id, se crea uno nuevo.
+#[tauri::command]
+fn artist_save(app: AppHandle, mut artist: artists::Artist) -> Res<artists::Store> {
+    let dir = data_dir(&app);
+    let mut s = artists::load(&dir);
+    artist.name = artist.name.trim().to_string();
+    if artist.name.is_empty() {
+        return Err("Escribí el nombre del artista".into());
+    }
+    artist.new = false;
+    if artist.id.is_empty() {
+        let id = artists::slug(&artist.name);
+        if s.artists.iter().any(|a| a.id == id) {
+            return Err(format!("{} ya está en el mapa", artist.name));
+        }
+        artist.id = id;
+        // Si estaba entre los descartados, deja de estarlo.
+        s.discarded.retain(|a| a.id != artist.id);
+        s.artists.insert(0, artist);
+    } else {
+        let a = artists::find_mut(&mut s, &artist.id).map_err(err)?;
+        let opp = a.opp.clone();
+        let (r, rmx, rus) = (a.requests, a.requests_mx, a.requests_us);
+        // Si cambió el nombre, la medición vieja ya no corresponde.
+        let renamed = artists::fold(&a.name) != artists::fold(&artist.name);
+        *a = artist;
+        a.opp = if renamed { None } else { opp };
+        a.requests = r;
+        a.requests_mx = rmx;
+        a.requests_us = rus;
+    }
+    artists::save(&dir, &s).map_err(err)?;
+    Ok(s)
+}
+
+/// Saca un artista del mapa. Queda en "Descartados" para que Notion no lo vuelva a sumar.
+#[tauri::command]
+fn artist_remove(app: AppHandle, id: String) -> Res<artists::Store> {
+    let dir = data_dir(&app);
+    let mut s = artists::load(&dir);
+    let i = s.artists.iter().position(|a| a.id == id).ok_or("No se encontró ese artista")?;
+    let a = s.artists.remove(i);
+    s.discarded.insert(0, a);
+    artists::save(&dir, &s).map_err(err)?;
+    Ok(s)
+}
+
+#[tauri::command]
+fn artist_restore(app: AppHandle, id: String) -> Res<artists::Store> {
+    let dir = data_dir(&app);
+    let mut s = artists::load(&dir);
+    let i = s.discarded.iter().position(|a| a.id == id).ok_or("No se encontró ese artista")?;
+    let a = s.discarded.remove(i);
+    s.artists.insert(0, a);
+    artists::save(&dir, &s).map_err(err)?;
+    Ok(s)
+}
+
+/// Lee los pedidos de Notion y los cruza con el mapa.
+#[tauri::command]
+async fn artists_sync(app: AppHandle) -> Res<artists::Store> {
+    let settings = config::load(&config_dir(&app));
+    let token = config::get_secret(config::SECRET_NOTION).ok_or("Falta la clave de Notion en Ajustes")?;
+    let reqs = artists::fetch_requests(&token, &settings.notion_db_id).await.map_err(|e| format!("{e:#}"))?;
+    let dir = data_dir(&app);
+    let mut s = artists::load(&dir);
+    artists::apply_requests(&mut s, &reqs, now_secs());
+    artists::save(&dir, &s).map_err(err)?;
+    Ok(s)
+}
+
+/// Mide la oportunidad de los artistas pedidos (o de todos los que tengan más de 14 días sin medir).
+/// Avisa cada resultado con el evento "oportunidad" y se detiene si se termina la cuota.
+#[tauri::command]
+async fn artists_measure(app: AppHandle, ids: Vec<String>) -> Res<String> {
+    use tauri::Emitter;
+    let key = config::get_secret(config::SECRET_YT_KEY).ok_or("Falta la clave de búsqueda de YouTube en Ajustes")?;
+    let dir = data_dir(&app);
+    let now = now_secs();
+    let todo: Vec<(String, String)> = {
+        let s = artists::load(&dir);
+        s.artists
+            .iter()
+            .filter(|a| if ids.is_empty() { a.opp.as_ref().map(|o| now - o.measured > 14 * 86400).unwrap_or(true) } else { ids.contains(&a.id) })
+            .map(|a| (a.id.clone(), a.name.clone()))
+            .collect()
+    };
+    let mut done = 0;
+    for (id, name) in &todo {
+        match artists::measure(&key, name, now).await {
+            Ok(o) => {
+                let mut s = artists::load(&dir);
+                if let Ok(a) = artists::find_mut(&mut s, id) {
+                    a.opp = Some(o.clone());
+                }
+                artists::save(&dir, &s).map_err(err)?;
+                let _ = app.emit("oportunidad", serde_json::json!({ "id": id, "opp": o }));
+                done += 1;
+            }
+            Err(e) => {
+                let m = format!("{e:#}");
+                if m.starts_with("CUOTA") {
+                    return Ok(format!("Medidos {done} de {}. {}", todo.len(), m.trim_start_matches("CUOTA: ")));
+                }
+                return Err(format!("{name}: {m}"));
+            }
+        }
+    }
+    Ok(if todo.is_empty() { "Todos estaban medidos hace menos de 14 días".into() } else { format!("Medidos {done} artistas") })
+}
+
+/// Oportunidad de un nombre escrito en el formulario: usa la medición guardada si es reciente.
+#[tauri::command]
+async fn artist_opportunity(app: AppHandle, name: String) -> Res<artists::Opportunity> {
+    let dir = data_dir(&app);
+    let now = now_secs();
+    let s = artists::load(&dir);
+    let f = artists::fold(name.trim());
+    let found = s.artists.iter().find(|a| artists::fold(&a.name) == f || a.aliases.iter().any(|x| artists::fold(x) == f)).cloned();
+    if let Some(o) = found.as_ref().and_then(|a| a.opp.clone()).filter(|o| now - o.measured <= 14 * 86400) {
+        return Ok(o);
+    }
+    let key = config::get_secret(config::SECRET_YT_KEY).ok_or("Falta la clave de búsqueda de YouTube en Ajustes")?;
+    let o = artists::measure(&key, name.trim(), now).await.map_err(|e| format!("{e:#}").trim_start_matches("CUOTA: ").to_string())?;
+    if let Some(a) = found {
+        let mut s = artists::load(&dir);
+        if let Ok(x) = artists::find_mut(&mut s, &a.id) {
+            x.opp = Some(o.clone());
+        }
+        let _ = artists::save(&dir, &s);
+    }
+    Ok(o)
 }
 
 #[derive(Serialize)]
@@ -446,7 +604,14 @@ pub fn run() {
             check_update,
             install_update,
             preflight,
-            thumb_candidates
+            thumb_candidates,
+            artists_get,
+            artist_save,
+            artist_remove,
+            artist_restore,
+            artists_sync,
+            artists_measure,
+            artist_opportunity
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar la app");

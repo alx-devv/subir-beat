@@ -14,6 +14,7 @@
     <button class="new" id="newBtn" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>Nuevo beat</button>
     <p class="side-label" id="recentLabel" hidden>Sin terminar</p>
     <ul class="recent" id="recent"></ul>
+    <button class="side-link side-map" id="mapBtn" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.8 3.8l4-1.6 4.4 1.6 4-1.6v10l-4 1.6-4.4-1.6-4 1.6zM5.8 2.2v10M10.2 3.8v10"/></svg>Mapa de artistas</button>
     <button class="side-link" id="settingsBtn" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1"/></svg>Ajustes</button>
   </aside>
 
@@ -39,8 +40,14 @@
         </div>
         <div class="field">
           <label for="f-artist">Artista de referencia</label>
-          <input id="f-artist" placeholder="Feid x Bryant Myers">
+          <input id="f-artist" placeholder="Nsqk x PILLGRIM">
+          <div class="art-pop" id="artPop" hidden></div>
         </div>
+      </section>
+
+      <section class="card sug-card" id="sugCard" hidden>
+        <div class="cap-row"><p class="lbl" id="sugLabel">Sugeridos</p><button type="button" class="link" id="sugMap">Ver el mapa</button></div>
+        <div class="sug" id="artSug"></div>
       </section>
 
       <section class="card">
@@ -189,6 +196,41 @@
   </main>
 
   <!-- AJUSTES -->
+  <main class="view wide" id="view-mapa" hidden>
+    <div class="col map">
+      <header class="head map-head">
+        <div>
+          <h1 class="title">Mapa de artistas</h1>
+          <p class="sub" id="mapSub"></p>
+        </div>
+        <div class="map-actions">
+          <button type="button" class="btn ghost small" id="mapSync">Leer pedidos de Notion</button>
+          <button type="button" class="btn ghost small" id="mapMeasure">Medir oportunidad</button>
+          <button type="button" class="btn accent small" id="mapAdd">Agregar artista</button>
+        </div>
+      </header>
+
+      <section class="asks" id="mapAsks" hidden></section>
+
+      <div class="map-bar">
+        <div class="seg" role="radiogroup" aria-label="País" id="mapCountry">
+          <button type="button" role="radio" data-c="">Todos</button>
+          <button type="button" role="radio" data-c="MX">México</button>
+          <button type="button" role="radio" data-c="US">EE. UU.</button>
+          <button type="button" role="radio" data-c="otro">Otros</button>
+        </div>
+        <div class="chips" id="mapGroups"></div>
+        <input class="map-search" id="mapSearch" type="search" placeholder="Buscar artista" aria-label="Buscar artista">
+      </div>
+
+      <section class="card map-table" id="mapTable"></section>
+      <p class="map-legend"><span class="bars b3"><i></i><i></i><i></i></span>Buena oportunidad<span class="bars b2"><i></i><i></i><i></i></span>Se puede<span class="bars b1"><i></i><i></i><i></i></span>Saturado o sin demanda<span class="bars b0"><i></i><i></i><i></i></span>Sin medir</p>
+
+      <section class="card map-extra" id="mapUnmatched" hidden></section>
+      <details class="card map-extra" id="mapDiscarded" hidden><summary></summary><div class="disc-list"></div></details>
+    </div>
+  </main>
+
   <main class="view wide" id="view-ajustes" hidden>
     <form class="col" id="settingsForm" autocomplete="off">
       <header class="head"><h1 class="title">Ajustes</h1></header>
@@ -243,9 +285,20 @@
       </section>
 
       <section class="card set">
+        <h2>Mapa de artistas</h2>
+        <p class="help">La clave de Notion lee los pedidos de "Contactos de la landing". La clave de búsqueda de YouTube mide la competencia de cada artista; es de otro proyecto de Google, aparte del que sube los videos.</p>
+        <div class="grid-2">
+          <div class="field"><label for="s-notion">Clave de Notion</label><input id="s-notion" type="password" data-secret="notion" placeholder="Sin cargar"></div>
+          <div class="field"><label for="s-notiondb">Base de pedidos (ID)</label><input id="s-notiondb" name="notion_db_id"></div>
+          <div class="field"><label for="s-ytkey">Clave de búsqueda de YouTube</label><input id="s-ytkey" type="password" data-secret="ytkey" placeholder="Sin cargar"></div>
+        </div>
+      </section>
+
+      <section class="card set">
         <h2>Textos de YouTube</h2>
-        <p class="help">Variables: {nombre} {artista} {artista_tag} {bpm} {key} {genero} {generos} {mood} {instrumentos} {link} {tienda} {premium} {exclusiva}</p>
+        <p class="help">Variables: {nombre} {artista} {artista_tag} {bpm} {key} {genero} {generos} {estilo} {mood} {instrumentos} {link} {tienda} {premium} {exclusiva}</p>
         <div class="field"><label for="s-ytt">Título</label><input id="s-ytt" name="yt_title"></div>
+        <label class="check"><input type="checkbox" name="yt_title_lower"> Título todo en minúscula</label>
         <div class="field"><label for="s-ytd">Descripción</label><textarea id="s-ytd" name="yt_description" rows="12"></textarea></div>
         <div class="field"><label for="s-ytg">Tags</label><textarea id="s-ytg" name="yt_tags" rows="3"></textarea></div>
       </section>

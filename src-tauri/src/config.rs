@@ -34,6 +34,10 @@ pub struct Settings {
     /// Google ya aprobó la auditoría: los videos respetan la visibilidad elegida.
     pub yt_audited: bool,
     pub yt_title: String,
+    /// Título todo en minúscula.
+    pub yt_title_lower: bool,
+    // Mapa de artistas
+    pub notion_db_id: String,
     pub yt_description: String,
     pub yt_tags: String,
     // Léeme.txt dentro de los zips
@@ -65,7 +69,9 @@ impl Default for Settings {
             yt_channel: String::new(),
             yt_privacy: "public".into(),
             yt_audited: false,
-            yt_title: "{artista} Type Beat - \"{nombre}\"".into(),
+            yt_title: DEFAULT_TITLE.into(),
+            yt_title_lower: true,
+            notion_db_id: "4b320e67-6e02-472b-9fe0-b63904794a12".into(),
             yt_description: DEFAULT_DESCRIPTION.into(),
             downloads_url: "https://alexgareis.com/pages/descargas".into(),
             readme_premium: README_PREMIUM.into(),
@@ -74,6 +80,9 @@ impl Default for Settings {
         }
     }
 }
+
+pub const DEFAULT_TITLE: &str = "{artista} type beat - \"{nombre}\" | {estilo}";
+const OLD_TITLE: &str = "{artista} Type Beat - \"{nombre}\"";
 
 const DEFAULT_DESCRIPTION: &str = "🎧 Licencia este beat: {link}
 
@@ -137,6 +146,9 @@ pub fn load(config_dir: &PathBuf) -> Settings {
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
     s.downloads_url = with_scheme(&s.downloads_url);
+    if s.yt_title == OLD_TITLE {
+        s.yt_title = DEFAULT_TITLE.into();
+    }
     if s.yt_privacy == "scheduled" {
         s.yt_privacy = "public".into();
     }
@@ -164,6 +176,8 @@ pub const SECRET_SHOPIFY: &str = "shopify_client_secret";
 pub const SECRET_R2: &str = "r2_secret_access_key";
 pub const SECRET_YT_CLIENT: &str = "youtube_client_secret";
 pub const SECRET_YT_REFRESH: &str = "youtube_refresh_token";
+pub const SECRET_NOTION: &str = "notion_token";
+pub const SECRET_YT_KEY: &str = "youtube_api_key";
 
 pub fn get_secret(name: &str) -> Option<String> {
     keyring::Entry::new(KEYRING_SERVICE, name)
