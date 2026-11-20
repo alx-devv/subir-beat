@@ -1,6 +1,6 @@
 [package]
 name = "subir-beat"
-version = "3.0.0"
+version = "3.0.1"
 description = "Subir un beat de punta a punta: bucket, Shopify y YouTube"
 authors = ["Alex Gareis"]
 edition = "2021"

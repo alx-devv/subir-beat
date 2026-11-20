@@ -295,12 +295,10 @@ async fn run_inner(ctx: Arc<Ctx>, settings: Settings) -> Result<()> {
         }
     }
 
-    // El Léeme manda a la página de descargas: tiene que existir.
-    if !settings.downloads_url.trim().is_empty() {
-        let ok = http.get(settings.downloads_url.trim()).send().await.map(|r| r.status().is_success()).unwrap_or(false);
-        if !ok {
-            bail!("La página de descargas ({}) no responde. Revisala en Ajustes.", settings.downloads_url.trim());
-        }
+    // El Léeme manda a la página de descargas: tiene que existir. Solo hace falta antes de armar los zips.
+    let url = settings.downloads_url.trim();
+    if !url.is_empty() && !ctx.is_done("bucket").await && !page_exists(url).await {
+        bail!("La página de descargas ({url}) no responde. Revisala en Ajustes.");
     }
 
     let names = naming::names(&input.name, input.bpm, &input.key);
@@ -393,6 +391,34 @@ fn build_zip(dest: &Path, entries: &[(PathBuf, String)], text: Option<(&str, &[u
     zip.finish()?.flush()?;
     std::fs::rename(&tmp, dest)?;
     Ok(())
+}
+
+/// ¿La página existe? Se pide como un navegador. Solo cuenta como caída si no hay conexión,
+/// si no existe (404/410) o si el servidor falla; un bloqueo antibots (403/429) no frena la subida.
+pub async fn page_exists(url: &str) -> bool {
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36")
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .unwrap_or_default();
+    for intento in 0..3 {
+        if intento > 0 {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+        match client.get(url).header("Accept", "text/html,application/xhtml+xml").header("Accept-Language", "es").send().await {
+            Ok(r) => {
+                let s = r.status().as_u16();
+                if !matches!(s, 404 | 410 | 500 | 502 | 504) {
+                    return true;
+                }
+                if matches!(s, 404 | 410) {
+                    return false;
+                }
+            }
+            Err(_) => {}
+        }
+    }
+    false
 }
 
 /// Texto del Léeme: UTF-8 con BOM y saltos de línea de Windows, para que el Bloc de notas muestre bien los acentos.
@@ -874,5 +900,18 @@ mod tests {
         assert!(!txt.contains("{nombre}"));
         assert!(z.by_name("beat.wav").is_ok());
         println!("{txt}");
+    }
+}
+
+#[cfg(test)]
+mod pagina {
+    /// Necesita: python3 st.py
+    #[tokio::test]
+    #[ignore]
+    async fn estados() {
+        for (c, ok) in [(200, true), (403, true), (429, true), (404, false), (502, false)] {
+            assert_eq!(super::page_exists(&format!("http://127.0.0.1:8766/{c}")).await, ok, "{c}");
+        }
+        assert!(!super::page_exists("http://127.0.0.1:1/").await);
     }
 }

@@ -1,5 +1,3 @@
-Versión 3.0.0
-- Sube el video a YouTube solo, con miniatura, título, descripción y tags.
-- Elegís si el video sale público, oculto o programado.
-- Si se corta internet, la subida a YouTube se retoma desde donde quedó.
-- Botón "Buscar actualizaciones" en Ajustes y aviso al abrir la app cuando hay una versión nueva.
+Versión 3.0.1
+- Arreglo: la revisión de la página de descargas ya no frena la subida cuando la página anda bien en el navegador.
+- Al retomar un beat, esa revisión solo se hace si todavía faltan los zips.
