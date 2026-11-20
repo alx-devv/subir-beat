@@ -1,3 +1,7 @@
-Versión 3.0.1
-- Arreglo: la revisión de la página de descargas ya no frena la subida cuando la página anda bien en el navegador.
-- Al retomar un beat, esa revisión solo se hace si todavía faltan los zips.
+Versión 3.0.2
+- Ícono nuevo.
+- Un solo campo "Multimedia" (foto o video). Si es un video, elegís la miniatura entre 3 fotogramas en la vista previa.
+- Ya no hay historial: solo aparecen los beats que quedaron sin terminar, con Retomar y Descartar.
+- Si ya hay un beat con el mismo nombre en la tienda, te avisa antes de empezar y podés reemplazarlo o cambiarle el nombre.
+- Todo se revisa al tocar "Publicar beat" (conexiones, página de descargas, nombre), para que no falle en el último paso.
+- Visibilidad en YouTube: Pública u Oculta.

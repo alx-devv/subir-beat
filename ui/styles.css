@@ -303,3 +303,22 @@ body.dragging .dropveil { opacity: 1; }
 .upd { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 20; display: flex; align-items: center; gap: 10px; background: var(--card); border: 0.5px solid var(--line-2); border-radius: 999px; padding: 6px 6px 6px 16px; box-shadow: 0 6px 24px rgba(29, 28, 26, .08); }
 .upd p { margin: 0 6px 0 0; color: var(--ink); white-space: nowrap; }
 .upd p span { color: var(--muted); }
+
+/* 3.0.2: miniatura elegida entre fotogramas */
+.cap-row { display: flex; align-items: baseline; justify-content: space-between; }
+.link { border: 0; background: none; padding: 0; font-size: 11px; color: var(--ink-2); text-decoration: underline; text-underline-offset: 2px; }
+.link:hover { color: var(--ink); }
+.tgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tgrid button { position: relative; padding: 0; border: 0; border-radius: 8px; overflow: hidden; aspect-ratio: 16 / 9; background: #111; outline: 2px solid transparent; outline-offset: 2px; transition: outline-color .12s; }
+.tgrid button img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tgrid button:hover { outline-color: var(--line-2); }
+.tgrid button[aria-checked="true"] { outline-color: var(--accent); }
+.tgrid.loading button { opacity: .5; }
+.alert .btn + .btn { margin-left: -8px; }
+
+/* 3.0.2: aviso de nombre repetido */
+.modal-bg { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: rgba(29, 28, 26, .28); }
+.modal { width: min(420px, calc(100% - 48px)); background: var(--card); border-radius: 14px; padding: 22px 22px 18px; box-shadow: 0 18px 48px rgba(29, 28, 26, .18); }
+.modal h2 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
+.modal p { margin: 0 0 18px; color: var(--ink-2); line-height: 1.5; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }

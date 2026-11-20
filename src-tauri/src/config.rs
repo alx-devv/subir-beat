@@ -132,10 +132,25 @@ pub fn settings_path(config_dir: &PathBuf) -> PathBuf {
 }
 
 pub fn load(config_dir: &PathBuf) -> Settings {
-    std::fs::read_to_string(settings_path(config_dir))
+    let mut s: Settings = std::fs::read_to_string(settings_path(config_dir))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    s.downloads_url = with_scheme(&s.downloads_url);
+    if s.yt_privacy == "scheduled" {
+        s.yt_privacy = "public".into();
+    }
+    s
+}
+
+/// "alexgareis.com/pages/descargas" → "https://alexgareis.com/pages/descargas".
+pub fn with_scheme(url: &str) -> String {
+    let u = url.trim();
+    if u.is_empty() || u.starts_with("http://") || u.starts_with("https://") {
+        u.to_string()
+    } else {
+        format!("https://{u}")
+    }
 }
 
 pub fn save(config_dir: &PathBuf, s: &Settings) -> anyhow::Result<()> {

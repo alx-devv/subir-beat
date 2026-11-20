@@ -258,3 +258,52 @@ mod tests {
         assert!((duration_secs(&d.join("o_vid.mp4")).await.unwrap() - 20.0).abs() < 0.2);
     }
 }
+
+/// Miniaturas candidatas de 1280x720 con el mismo armado que el video (cuadrado al centro, franjas negras).
+/// Video o gif: 3 fotogramas de distintos momentos (la tanda cambia con `seed`). Imagen: una sola.
+pub async fn thumb_candidates(visual: &Path, out_dir: &Path, seed: u32) -> Result<Vec<PathBuf>> {
+    std::fs::create_dir_all(out_dir)?;
+    let filter = "scale=720:720:force_original_aspect_ratio=increase,crop=720:720,setsar=1,pad=1280:720:280:0:black";
+    let stem = format!("{:x}", seed);
+    let kind = visual_kind(visual);
+    let times: Vec<Option<f64>> = match kind {
+        VisualKind::Image => vec![None],
+        _ => {
+            let d = duration_secs(visual).await.unwrap_or(0.0).max(0.1);
+            // Tandas: 25/50/75 %, luego 15/45/85 %, 35/60/90 %, y vuelve a empezar.
+            let sets = [[0.25, 0.5, 0.75], [0.15, 0.45, 0.85], [0.35, 0.6, 0.9]];
+            sets[(seed as usize) % sets.len()].iter().map(|f| Some((d * f).min(d - 0.05).max(0.0))).collect()
+        }
+    };
+    let mut out = Vec::new();
+    for (i, t) in times.iter().enumerate() {
+        let path = out_dir.join(format!("miniatura_{stem}_{i}.jpg"));
+        let mut c = command();
+        c.arg("-hide_banner").arg("-loglevel").arg("error").arg("-y");
+        if let Some(t) = t {
+            c.arg("-ss").arg(format!("{t:.2}"));
+        }
+        c.arg("-i").arg(visual).arg("-frames:v").arg("1").arg("-vf").arg(filter).arg("-q:v").arg("3").arg(&path);
+        let st = c.stdout(Stdio::null()).stderr(Stdio::piped()).output().await.context("No se pudo ejecutar ffmpeg")?;
+        if !st.status.success() || !path.exists() {
+            bail!("No se pudo sacar un fotograma: {}", String::from_utf8_lossy(&st.stderr).trim());
+        }
+        out.push(path);
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod miniaturas {
+    #[tokio::test]
+    #[ignore]
+    async fn tres_fotogramas() {
+        let out = std::env::temp_dir().join("mini_test");
+        let v = super::thumb_candidates(std::path::Path::new("/tmp/tc/v.mp4"), &out, 0).await.unwrap();
+        assert_eq!(v.len(), 3);
+        let v2 = super::thumb_candidates(std::path::Path::new("/tmp/tc/v.mp4"), &out, 1).await.unwrap();
+        assert_ne!(v[0], v2[0]);
+        for p in v.iter().chain(&v2) { let (w, h) = { let d = imagesize::size(p).unwrap(); (d.width, d.height) }; assert_eq!((w, h), (1280, 720)); }
+        println!("{:?}", v);
+    }
+}

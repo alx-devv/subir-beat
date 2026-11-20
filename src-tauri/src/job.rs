@@ -38,6 +38,8 @@ pub struct BeatInput {
     /// Fecha programada en UTC (RFC 3339) y en segundos, para validarla.
     pub yt_publish_at: String,
     pub yt_publish_ts: u64,
+    /// Si ya hay un producto con ese nombre en la tienda, actualizarlo en vez de frenar.
+    pub replace: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -122,7 +124,7 @@ pub fn validate(input: &BeatInput) -> Result<()> {
         ("el WAV", &input.wav, false),
         ("la carpeta de stems", &input.stems, true),
         ("el mp3 con tag", &input.mp3, false),
-        ("el visual", &input.visual, false),
+        ("la foto o el video (multimedia)", &input.visual, false),
     ] {
         let path = Path::new(p);
         if p.is_empty() || !path.exists() || path.is_dir() != dir {
@@ -290,8 +292,11 @@ async fn run_inner(ctx: Arc<Ctx>, settings: Settings) -> Result<()> {
     // Antes de tocar nada: que no exista otro producto con el mismo handle.
     if product_id.is_empty() {
         if let Some(id) = shop.product_id_by_handle(&handle).await? {
-            let _ = id;
-            bail!("Ya existe un producto en Shopify con el nombre \"{}\" (handle {handle}). Cambiá el nombre del beat.", input.name);
+            if !input.replace {
+                bail!("Ya existe un producto en Shopify con el nombre \"{}\" (handle {handle}). Cambiá el nombre del beat.", input.name);
+            }
+            // Reemplazar: se actualiza ese mismo producto.
+            ctx.update(move |j| j.product_id = id).await;
         }
     }
 
@@ -760,7 +765,7 @@ async fn step_youtube(ctx: &Arc<Ctx>, settings: &Settings, input: &BeatInput, ou
         let (p, n) = media::prepare_thumbnail(Path::new(&input.thumbnail), out_dir).await?;
         (p.to_string_lossy().to_string(), n.unwrap_or_default())
     } else {
-        (String::new(), "Sin miniatura: podés agregarla directo en YouTube Studio".into())
+        (String::new(), "YouTube elige la miniatura del video".into())
     };
     let txt = format!("TÍTULO\n{title}\n\nDESCRIPCIÓN\n{description}\n\nTAGS\n{tags}\n");
     std::fs::write(out_dir.join("youtube.txt"), txt)?;

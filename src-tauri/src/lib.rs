@@ -244,6 +244,57 @@ fn preview(app: AppHandle, input: BeatInput) -> Preview {
     }
 }
 
+#[derive(Serialize)]
+struct Preflight {
+    /// Ya hay un producto con ese nombre en la tienda.
+    exists: bool,
+    product_url: String,
+}
+
+/// Todo lo que puede fallar se revisa antes de empezar, para no enterarse en el último paso.
+#[tauri::command]
+async fn preflight(app: AppHandle, input: BeatInput) -> Res<Preflight> {
+    job::validate_new(&input).map_err(err)?;
+    let settings = config::load(&config_dir(&app));
+    let handle = naming::handle(&input.name);
+    let http = reqwest::Client::new();
+    let shop = shopify::Shopify::new(
+        &settings.shop_domain,
+        &settings.shop_client_id,
+        &config::get_secret(config::SECRET_SHOPIFY).unwrap_or_default(),
+        http,
+    )
+    .map_err(err)?;
+    let exists = shop
+        .product_id_by_handle(&handle)
+        .await
+        .map_err(|e| format!("No se pudo conectar con Shopify: {e:#}. Revisá Ajustes → Probar conexiones."))?
+        .is_some();
+    if settings.r2_account_id.trim().is_empty() || config::get_secret(config::SECRET_R2).is_none() {
+        return Err("Falta configurar el bucket (Cloudflare R2) en Ajustes".into());
+    }
+    let url = settings.downloads_url.trim();
+    if !url.is_empty() && !job::page_exists(url).await {
+        return Err(format!("La página de descargas ({url}) no responde. Revisala en Ajustes."));
+    }
+    let store = settings.store_url.trim_end_matches('/');
+    Ok(Preflight { exists, product_url: format!("{store}/products/{handle}") })
+}
+
+/// Fotogramas para elegir la miniatura de YouTube.
+#[tauri::command]
+async fn thumb_candidates(app: AppHandle, visual: String, seed: u32) -> Res<Vec<String>> {
+    let dir = app.path().app_cache_dir().map_err(err)?.join("miniaturas");
+    // Las tandas viejas no hacen falta.
+    if seed == 0 {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    media::thumb_candidates(std::path::Path::new(&visual), &dir, seed)
+        .await
+        .map(|v| v.into_iter().map(|p| p.to_string_lossy().to_string()).collect())
+        .map_err(|e| format!("{e:#}"))
+}
+
 #[tauri::command]
 fn start_job(app: AppHandle, input: BeatInput) -> Res<String> {
     job::validate_new(&input).map_err(err)?;
@@ -253,11 +304,9 @@ fn start_job(app: AppHandle, input: BeatInput) -> Res<String> {
         if prev.running {
             return Err("Ese beat ya se está subiendo".into());
         }
-        if prev.steps.values().all(|s| s.status == "listo") {
-            return Err("Ese beat ya se subió completo. Está en el historial.".into());
-        }
-        if !prev.product_id.is_empty() {
-            return Err("Ese beat quedó a medias: retomalo desde el historial.".into());
+        // Si quedó uno a medias con el mismo nombre y no se pidió reemplazar, se retoma desde ahí.
+        if !prev.product_id.is_empty() && !j.input.replace && !prev.steps.values().all(|s| s.status == "listo") {
+            return Err("Ese beat quedó a medias: abrilo en \"Sin terminar\" y tocá Retomar.".into());
         }
     }
     spawn(app, j.clone());
@@ -395,7 +444,9 @@ pub fn run() {
             yt_disconnect,
             upload_youtube,
             check_update,
-            install_update
+            install_update,
+            preflight,
+            thumb_candidates
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar la app");

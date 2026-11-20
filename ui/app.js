@@ -83,9 +83,11 @@ async function renderRecent() {
   const jobs = await invoke("list_jobs");
   const ul = $("#recent");
   ul.innerHTML = "";
-  if (!jobs.length) { ul.append(el("li", "empty", "Todavía no hay beats")); return; }
-  for (const j of jobs) {
-    const done = STEP_ORDER.every((s) => j.steps?.[s]?.status === "listo");
+  // Sin historial: solo aparecen los que quedaron sin terminar.
+  const pending = jobs.filter((j) => !STEP_ORDER.every((s) => j.steps?.[s]?.status === "listo"));
+  $("#recentLabel").hidden = !pending.length;
+  for (const j of pending) {
+    const done = false;
     const li = el("li");
     const b = el("button");
     b.type = "button";
@@ -179,7 +181,7 @@ function publishFields() {
 }
 
 function setPrivacy(p) {
-  state.privacy = ["public", "unlisted", "scheduled"].includes(p) ? p : "public";
+  state.privacy = ["public", "unlisted"].includes(p) ? p : "public";
   $$("#ytSeg button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.p === state.privacy)));
   $("#ytWhen").hidden = state.privacy !== "scheduled";
 }
@@ -301,13 +303,15 @@ function renderDetect() {
 function setSlot(slot, path, silent) {
   state.slots[slot] = path;
   const row = $(`.file[data-slot="${slot}"]`);
-  row.classList.toggle("filled", !!path);
-  const v = $(".fval", row);
-  v.textContent = path ? baseName(path) : v.dataset.empty;
+  if (row) {
+    row.classList.toggle("filled", !!path);
+    const v = $(".fval", row);
+    v.textContent = path ? baseName(path) : v.dataset.empty;
+  }
   if (slot === "mp3") loadAudio(path);
   if (slot === "thumbnail") loadThumbInfo(path);
   if (slot === "wav" && path && !silent) detectFromWav(path);
-  if (slot === "visual") stopPreview();
+  if (slot === "visual") { stopPreview(); loadCandidates(0); }
   if (!silent) changed();
 }
 
@@ -333,13 +337,12 @@ async function place(paths, target) {
   const infos = await invoke("path_info", { paths });
   const unplaced = [];
   for (const f of infos) {
-    const fits = (s) => ({ wav: f.ext === "wav", mp3: f.ext === "mp3", stems: f.is_dir, visual: VISUAL_EXT.includes(f.ext), thumbnail: IMAGE_EXT.includes(f.ext) }[s]);
+    const fits = (s) => ({ wav: f.ext === "wav", mp3: f.ext === "mp3", stems: f.is_dir, visual: VISUAL_EXT.includes(f.ext) }[s]);
     let slot = null;
     if (target && fits(target)) slot = target;
     else if (f.is_dir) slot = "stems";
     else if (f.ext === "wav") slot = "wav";
     else if (f.ext === "mp3") slot = "mp3";
-    else if (IMAGE_EXT.includes(f.ext) && f.width && Math.abs(f.width / f.height - 16 / 9) < 0.03) slot = "thumbnail";
     else if (VISUAL_EXT.includes(f.ext)) slot = "visual";
     if (slot) {
       setSlot(slot, f.path);
@@ -352,8 +355,7 @@ async function place(paths, target) {
 const FILTERS = {
   wav: [{ name: "WAV", extensions: ["wav"] }],
   mp3: [{ name: "MP3", extensions: ["mp3"] }],
-  visual: [{ name: "Imagen, gif o video", extensions: VISUAL_EXT }],
-  thumbnail: [{ name: "Imagen", extensions: IMAGE_EXT }],
+  visual: [{ name: "Foto o video", extensions: VISUAL_EXT }],
 };
 $$(".file").forEach((row) => row.addEventListener("click", async () => {
   const slot = row.dataset.slot;
@@ -520,12 +522,52 @@ const refreshPreview = debounce(async () => {
   ]);
 }, 150);
 
+/* ---------- miniatura: fotogramas para elegir ---------- */
+
+let thumbSeed = 0;
+async function loadCandidates(seed) {
+  thumbSeed = seed;
+  const vis = state.slots.visual;
+  const box = $("#thumbPick"), grid = $("#thumbGrid");
+  if (!vis) { box.hidden = true; setThumb(""); return; }
+  grid.classList.add("loading");
+  let list = [];
+  try { list = await invoke("thumb_candidates", { visual: vis, seed }); } catch (e) { toast(String(e)); }
+  if (state.slots.visual !== vis || thumbSeed !== seed) return;
+  grid.classList.remove("loading");
+  grid.innerHTML = "";
+  // Con una foto hay una sola opción: no hace falta elegir.
+  box.hidden = list.length < 2;
+  list.forEach((p, i) => {
+    const b = el("button");
+    b.type = "button";
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-label", `Fotograma ${i + 1}`);
+    const img = el("img");
+    img.src = `${src(p)}?v=${Date.now()}`;
+    img.alt = "";
+    b.append(img);
+    b.dataset.p = p;
+    b.addEventListener("click", () => setThumb(p));
+    grid.append(b);
+  });
+  setThumb(list[Math.floor((list.length - 1) / 2)] || "");
+}
+
+function setThumb(p) {
+  state.slots.thumbnail = p;
+  $$("#thumbGrid button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.p === p)));
+  loadThumbInfo(p);
+  refreshPreview();
+}
+$("#moreThumbs").addEventListener("click", () => loadCandidates(thumbSeed + 1));
+
 /* ---------- publicar ---------- */
 
 function markInvalid(msg) {
   const map = [["nombre", "#f-name"], ["BPM", "#f-bpm"], ["tonalidad", "#f-key"], ["artista", "#f-artist"], ["precios", "#f-pp"]];
   for (const [w, sel] of map) if (msg.includes(w)) $(sel).classList.add("invalid");
-  for (const [w, slot] of [["WAV", "wav"], ["stems", "stems"], ["mp3", "mp3"], ["visual", "visual"]]) {
+  for (const [w, slot] of [["WAV", "wav"], ["stems", "stems"], ["mp3", "mp3"], ["multimedia", "visual"]]) {
     if (msg.includes(w)) $(`.file[data-slot="${slot}"]`).classList.add("need");
   }
 }
@@ -539,6 +581,26 @@ async function publish() {
     return;
   }
   btn.disabled = true;
+  btn.textContent = "Revisando…";
+  let pre;
+  try {
+    pre = await invoke("preflight", { input });
+  } catch (e) {
+    $("#formMsg").textContent = e;
+    btn.disabled = false;
+    btn.textContent = "Publicar beat";
+    return;
+  }
+  btn.textContent = "Publicar beat";
+  if (pre.exists) {
+    const choice = await askDuplicate(input.name);
+    if (choice !== "replace") {
+      btn.disabled = false;
+      if (choice === "rename") { $("#f-name").focus(); $("#f-name").select(); }
+      return;
+    }
+    input.replace = true;
+  }
   try {
     const handle = await invoke("start_job", { input });
     store.del("borrador");
@@ -552,6 +614,21 @@ async function publish() {
   }
 }
 $("#publishBtn").addEventListener("click", publish);
+
+function askDuplicate(name) {
+  return new Promise((resolve) => {
+    const m = $("#dupModal");
+    $("#dupTitle").textContent = `Ya hay un beat que se llama "${name}"`;
+    m.hidden = false;
+    $("#dupReplace").focus();
+    const done = (v) => { m.hidden = true; document.removeEventListener("keydown", onKey); resolve(v); };
+    const onKey = (e) => { if (e.key === "Escape") done("cancel"); };
+    document.addEventListener("keydown", onKey);
+    $("#dupReplace").onclick = () => done("replace");
+    $("#dupRename").onclick = () => done("rename");
+    m.onclick = (e) => { if (e.target === m) done("cancel"); };
+  });
+}
 $("#clearBtn").addEventListener("click", clearForm);
 
 /* ---------- trabajo ---------- */
@@ -621,6 +698,13 @@ function onProgress({ step, detail, progress }) {
   $("i", m).style.width = `${(progress * 100).toFixed(1)}%`;
 }
 
+$("#discardBtn").addEventListener("click", async () => {
+  try { await invoke("forget_job", { handle: state.job.handle }); } catch {}
+  state.job = null;
+  show("nuevo");
+  renderRecent();
+  toast("Descartado. Lo que ya se había subido queda como está.");
+});
 $("#retryBtn").addEventListener("click", async () => {
   try {
     await invoke("retry_job", { handle: state.job.handle });
