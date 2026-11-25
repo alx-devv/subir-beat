@@ -4,11 +4,12 @@ use crate::config::{self, Settings};
 use crate::media::{self, VisualKind};
 use crate::naming;
 use crate::r2::R2;
-use crate::shopify::Shopify;
+use crate::onda;
+use crate::tienda::{self, Tienda};
 use crate::youtube;
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -38,7 +39,7 @@ pub struct BeatInput {
     /// Fecha programada en UTC (RFC 3339) y en segundos, para validarla.
     pub yt_publish_at: String,
     pub yt_publish_ts: u64,
-    /// Si ya hay un producto con ese nombre en la tienda, actualizarlo en vez de frenar.
+    /// Si ya hay un beat con ese nombre en la tienda, actualizarlo en vez de frenar.
     pub replace: bool,
 }
 
@@ -69,6 +70,10 @@ pub struct Job {
     pub thumbnail_note: String,
     pub web_image: String,
     pub web_image_bytes: u64,
+    /// Portada (GIF original) y miniatura WebP ya subidas a R2, como direcciones de la tienda.
+    pub cover_url: String,
+    pub cover_thumb: String,
+    pub cover_thumb_bytes: u64,
     pub yt_title: String,
     pub yt_description: String,
     pub yt_tags: String,
@@ -83,7 +88,7 @@ pub struct Job {
     pub yt_auto: bool,
 }
 
-pub const STEPS: [&str; 7] = ["archivos", "bucket", "web", "shopify", "publicar", "video", "youtube"];
+pub const STEPS: [&str; 6] = ["archivos", "bucket", "web", "tienda", "video", "youtube"];
 
 pub fn jobs_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("trabajos")
@@ -118,7 +123,7 @@ pub fn validate(input: &BeatInput) -> Result<()> {
         bail!("Falta completar: {}", faltan.join(", "));
     }
     if input.instruments.len() > 3 {
-        bail!("Shopify acepta hasta 3 instrumentos");
+        bail!("Elegí hasta 3 instrumentos");
     }
     for (label, p, dir) in [
         ("el WAV", &input.wav, false),
@@ -131,9 +136,6 @@ pub fn validate(input: &BeatInput) -> Result<()> {
             bail!("Falta {label}");
         }
     }
-    if price(&input.price_premium).is_none() || price(&input.price_exclusiva).is_none() {
-        bail!("Revisá los precios");
-    }
     Ok(())
 }
 
@@ -144,11 +146,6 @@ pub fn validate_new(input: &BeatInput) -> Result<()> {
         bail!("La fecha programada de YouTube tiene que ser al menos 10 minutos en el futuro");
     }
     Ok(())
-}
-
-fn price(s: &str) -> Option<String> {
-    let v: f64 = s.trim().replace(',', ".").parse().ok()?;
-    (v > 0.0).then(|| format!("{v:.2}"))
 }
 
 fn price_label(s: &str) -> String {
@@ -238,6 +235,11 @@ pub async fn run(app: AppHandle, data_dir: PathBuf, config_dir: PathBuf, mut job
     let settings = config::load(&config_dir);
     job.running = true;
     job.error.clear();
+    // Trabajos de versiones viejas (con los pasos de Shopify): quedan solo los pasos de ahora.
+    job.steps.retain(|k, _| STEPS.contains(&k.as_str()));
+    for st in STEPS {
+        job.steps.entry(st.to_string()).or_insert_with(|| StepState { status: "pendiente".into(), ..Default::default() });
+    }
     for s in job.steps.values_mut() {
         if s.status != "listo" {
             *s = StepState { status: "pendiente".into(), ..Default::default() };
@@ -265,9 +267,9 @@ pub async fn run(app: AppHandle, data_dir: PathBuf, config_dir: PathBuf, mut job
 }
 
 async fn run_inner(ctx: Arc<Ctx>, settings: Settings) -> Result<()> {
-    let (input, handle, out_dir, product_id) = {
+    let (mut input, handle, out_dir) = {
         let j = ctx.job.lock().await;
-        (j.input.clone(), j.handle.clone(), PathBuf::from(&j.out_dir), j.product_id.clone())
+        (j.input.clone(), j.handle.clone(), PathBuf::from(&j.out_dir))
     };
     validate(&input)?;
     std::fs::create_dir_all(&out_dir).context("No se pudo crear la carpeta de salida")?;
@@ -275,12 +277,7 @@ async fn run_inner(ctx: Arc<Ctx>, settings: Settings) -> Result<()> {
     let http = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(20))
         .build()?;
-    let shop = Shopify::new(
-        &settings.shop_domain,
-        &settings.shop_client_id,
-        &config::get_secret(config::SECRET_SHOPIFY).unwrap_or_default(),
-        http.clone(),
-    )?;
+    let tienda = Tienda::new(&settings.store_url, config::clave_tienda(), http.clone())?;
     let r2 = R2::new(
         &settings.r2_account_id,
         &settings.r2_access_key_id,
@@ -289,15 +286,20 @@ async fn run_inner(ctx: Arc<Ctx>, settings: Settings) -> Result<()> {
         http.clone(),
     )?;
 
-    // Antes de tocar nada: que no exista otro producto con el mismo handle.
-    if product_id.is_empty() {
-        if let Some(id) = shop.product_id_by_handle(&handle).await? {
-            if !input.replace {
-                bail!("Ya existe un producto en Shopify con el nombre \"{}\" (handle {handle}). Cambiá el nombre del beat.", input.name);
-            }
-            // Reemplazar: se actualiza ese mismo producto.
-            ctx.update(move |j| j.product_id = id).await;
-        }
+    // Antes de tocar nada: que no exista otro beat con la misma dirección (salvo que se pida reemplazarlo).
+    // De paso trae los precios publicados de las licencias, para los textos ({premium} y {exclusiva}).
+    let consulta = tienda.consultar(&handle).await?;
+    if consulta.existe && !input.replace && !ctx.is_done("bucket").await {
+        bail!("Ya existe un beat con el nombre \"{}\" en la tienda (alexgareis.com/beats/{handle}). Cambiá el nombre del beat.", input.name);
+    }
+    if let (Some(p), Some(e)) = (consulta.premium, consulta.exclusiva) {
+        input.price_premium = tienda::precio_texto(p);
+        input.price_exclusiva = tienda::precio_texto(e);
+        let (pp, pe) = (input.price_premium.clone(), input.price_exclusiva.clone());
+        ctx.update(move |j| { j.input.price_premium = pp; j.input.price_exclusiva = pe; }).await;
+    } else if input.price_premium.is_empty() {
+        input.price_premium = settings.price_premium.clone();
+        input.price_exclusiva = settings.price_exclusiva.clone();
     }
 
     // El Léeme manda a la página de descargas: tiene que existir. Solo hace falta antes de armar los zips.
@@ -318,9 +320,8 @@ async fn run_inner(ctx: Arc<Ctx>, settings: Settings) -> Result<()> {
 
     let chain = async {
         step_files_and_bucket(&ctx, &settings, &r2, &input, &names, &out_dir).await?;
-        step_web(&ctx, &settings, &input, &out_dir).await?;
-        step_shopify(&ctx, &settings, &shop, &input, &names, &handle).await?;
-        step_publish(&ctx, &settings, &shop).await?;
+        step_web(&ctx, &settings, &r2, &input, &names, &out_dir).await?;
+        step_tienda(&ctx, &settings, &tienda, &input, &names, &handle).await?;
         Ok::<_, anyhow::Error>(())
     };
     if let Err(e) = chain.await {
@@ -518,10 +519,50 @@ async fn step_files_and_bucket(
     Ok(())
 }
 
-// ---------- Paso: imagen/gif para la web ----------
+// ---------- Paso: portada y miniatura para la tienda ----------
 
-async fn step_web(ctx: &Arc<Ctx>, settings: &Settings, input: &BeatInput, out_dir: &Path) -> Result<()> {
-    if ctx.is_done("web").await && Path::new(&ctx.job.lock().await.web_image).exists() {
+async fn step_web(ctx: &Arc<Ctx>, settings: &Settings, r2: &R2, input: &BeatInput, names: &naming::Names, out_dir: &Path) -> Result<()> {
+    if ctx.is_done("web").await && !ctx.job.lock().await.cover_url.is_empty() {
+        return Ok(());
+    }
+    portada_web(ctx, settings, input, out_dir).await?;
+    let web_image = PathBuf::from(&ctx.job.lock().await.web_image);
+
+    // Miniatura liviana (WebP animado de 240 px) para el catálogo, el reproductor y el carrito
+    ctx.step("web", "en_curso", "Armando la miniatura del catálogo", 0.5).await;
+    let mini = out_dir.join("miniatura.webp");
+    media::miniatura(&web_image, &mini).await?;
+    let mini_bytes = std::fs::metadata(&mini)?.len();
+
+    // Las dos a R2, dentro de la carpeta del beat. El nombre cambia en cada subida:
+    // la tienda guarda las imágenes en caché por un año, así nunca queda una vieja.
+    ctx.step("web", "en_curso", "Subiendo la portada y la miniatura", 0.7).await;
+    let suf = now();
+    let portada = format!("portada-{suf}.{}", media::ext(&web_image));
+    let miniatura = format!("portada-mini-{suf}.webp");
+    r2.upload(&web_image, &naming::object_key(&names.folder, &portada), mime_for(&web_image), |_| {})
+        .await
+        .context("Falló la subida de la portada")?;
+    r2.upload(&mini, &naming::object_key(&names.folder, &miniatura), "image/webp", |_| {})
+        .await
+        .context("Falló la subida de la miniatura")?;
+    let store = settings.store_url.trim_end_matches('/');
+    let (cu, ct) = (naming::media_url(store, &names.folder, &portada), naming::media_url(store, &names.folder, &miniatura));
+    let big = ctx.job.lock().await.web_image_bytes;
+    ctx.update(move |j| { j.cover_url = cu; j.cover_thumb = ct; j.cover_thumb_bytes = mini_bytes; }).await;
+    ctx.step(
+        "web",
+        "listo",
+        format!("Portada {:.1} MB y miniatura {} KB, en la tienda", big as f64 / 1_048_576.0, (mini_bytes / 1024).max(1)),
+        1.0,
+    )
+    .await;
+    Ok(())
+}
+
+/// La imagen de la portada: el GIF original (o uno generado si el visual es un video o un GIF enorme).
+async fn portada_web(ctx: &Arc<Ctx>, settings: &Settings, input: &BeatInput, out_dir: &Path) -> Result<()> {
+    if Path::new(&ctx.job.lock().await.web_image).exists() {
         return Ok(());
     }
     let visual = PathBuf::from(&input.visual);
@@ -564,11 +605,11 @@ async fn step_web(ctx: &Arc<Ctx>, settings: &Settings, input: &BeatInput, out_di
     let detail = format!("{detail}, {:.1} MB", bytes as f64 / 1_048_576.0);
     let d = dest.to_string_lossy().to_string();
     ctx.update(move |j| { j.web_image = d; j.web_image_bytes = bytes; }).await;
-    ctx.step("web", "listo", detail, 1.0).await;
+    ctx.step("web", "en_curso", detail, 0.4).await;
     Ok(())
 }
 
-// ---------- Paso: producto en Shopify ----------
+// ---------- Paso: alta en la tienda ----------
 
 fn mime_for(p: &Path) -> &'static str {
     match media::ext(p).as_str() {
@@ -579,97 +620,50 @@ fn mime_for(p: &Path) -> &'static str {
     }
 }
 
-async fn step_shopify(
+async fn step_tienda(
     ctx: &Arc<Ctx>,
     settings: &Settings,
-    shop: &Shopify,
+    tienda: &Tienda,
     input: &BeatInput,
     names: &naming::Names,
     handle: &str,
 ) -> Result<()> {
-    if ctx.is_done("shopify").await {
+    if ctx.is_done("tienda").await {
         return Ok(());
     }
-    ctx.step("shopify", "en_curso", "Subiendo la portada a Shopify", 0.2).await;
-    let (web_image, existing) = {
+    // Onda del mp3: el reproductor la dibuja al instante y el audio arranca sin bajar el archivo entero
+    ctx.step("tienda", "en_curso", "Calculando la onda del mp3", 0.2).await;
+    let mp3 = PathBuf::from(&input.mp3);
+    let preview_url = naming::public_url(&settings.public_base, &names.folder, &names.mp3);
+    let onda = tokio::task::spawn_blocking(move || onda::calcular(&mp3)).await?.ok();
+
+    ctx.step("tienda", "en_curso", "Publicando el beat en alexgareis.com", 0.6).await;
+    let (cover_url, cover_thumb) = {
         let j = ctx.job.lock().await;
-        (PathBuf::from(&j.web_image), j.product_id.clone())
+        (j.cover_url.clone(), j.cover_thumb.clone())
     };
-    let source = shop.staged_upload(&web_image, mime_for(&web_image)).await?;
-
-    ctx.step("shopify", "en_curso", "Creando el producto", 0.6).await;
-    let collection = shop.frontpage_collection().await?;
-    let opt = "Selecciona tu licencia";
-    let premium_name = format!("WAV Premium — ${} USD", price_label(&input.price_premium));
-    let excl_name = format!("WAV + STEMS Exclusiva — ${} USD", price_label(&input.price_exclusiva));
-    let link = |f: &str| naming::public_url(&settings.public_base, &names.folder, f);
-    let variant = |name: &str, p: &str, file: &str| {
-        json!({
-            "optionValues": [{ "optionName": opt, "name": name }],
-            "price": price(p).unwrap_or_default(),
-            "inventoryPolicy": "DENY",
-            "inventoryItem": { "tracked": false, "requiresShipping": false },
-            "metafields": [{ "namespace": "custom", "key": "link_de_descarga_de_audio", "type": "single_line_text_field", "value": link(file) }]
-        })
-    };
-    let list = |v: &Vec<String>| serde_json::to_string(v).unwrap();
-    let mut metafields = vec![
-        json!({ "namespace": "custom", "key": "bpm", "type": "number_integer", "value": input.bpm.to_string() }),
-        json!({ "namespace": "custom", "key": "key", "type": "list.single_line_text_field", "value": list(&vec![input.key.clone()]) }),
-        json!({ "namespace": "custom", "key": "instruments", "type": "list.single_line_text_field", "value": list(&input.instruments) }),
-        json!({ "namespace": "custom", "key": "preview_audio", "type": "single_line_text_field", "value": link(&names.mp3) }),
-    ];
-    if !input.generos.is_empty() {
-        metafields.push(json!({ "namespace": "custom", "key": "genero", "type": "list.single_line_text_field", "value": list(&input.generos) }));
-    }
-    if !input.moods.is_empty() {
-        metafields.push(json!({ "namespace": "custom", "key": "mood", "type": "list.single_line_text_field", "value": list(&input.moods) }));
-    }
-    let mut product: Value = json!({
+    let beat = json!({
+        "slug": handle,
         "title": input.name.trim(),
-        "handle": handle,
-        "status": "ACTIVE",
-        "vendor": settings.vendor,
-        "productOptions": [{ "name": opt, "values": [{ "name": premium_name }, { "name": excl_name }] }],
-        "variants": [
-            variant(&premium_name, &input.price_premium, &names.premium),
-            variant(&excl_name, &input.price_exclusiva, &names.exclusiva),
-        ],
-        "metafields": metafields,
-        "files": [{ "originalSource": source, "contentType": "IMAGE", "alt": input.name.trim() }],
+        "status": "active",
+        "bpm": input.bpm,
+        "music_key": input.key,
+        "genres": input.generos,
+        "moods": input.moods,
+        "instruments": input.instruments,
+        "cover_url": cover_url,
+        "cover_thumb": cover_thumb,
+        "preview_url": preview_url,
+        "file_premium": naming::object_key(&names.folder, &names.premium),
+        "file_exclusive": naming::object_key(&names.folder, &names.exclusiva),
+        "sort_order": 0,
+        "onda": onda.map(|o| json!({ "audio": preview_url, "d": o.d, "p": o.p })),
     });
-    if let Some(c) = collection {
-        product["collections"] = json!([c]);
-    }
-    let existing = (!existing.is_empty()).then_some(existing.as_str());
-    let (id, real_handle) = shop.product_set(existing, product).await?;
-    let num = id.rsplit('/').next().unwrap_or("").to_string();
-    let product_url = format!("{}/products/{}", settings.store_url.trim_end_matches('/'), real_handle);
-    let store = settings.shop_domain.split('.').next().unwrap_or("").to_string();
-    let admin_url = format!("https://admin.shopify.com/store/{store}/products/{num}");
-    ctx.update(move |j| { j.product_id = id; j.product_url = product_url; j.admin_url = admin_url; }).await;
-    ctx.step("shopify", "listo", "Producto creado con variantes, metacampos y links", 1.0).await;
-    Ok(())
-}
-
-async fn step_publish(ctx: &Arc<Ctx>, _settings: &Settings, shop: &Shopify) -> Result<()> {
-    if ctx.is_done("publicar").await {
-        return Ok(());
-    }
-    ctx.step("publicar", "en_curso", "Publicando en los canales", 0.3).await;
-    let id = ctx.job.lock().await.product_id.clone();
-    let n = shop.publish_everywhere(&id).await?;
-    ctx.step("publicar", "en_curso", "Verificando", 0.8).await;
-    let (status, online, links) = shop.verify(&id).await?;
-    if status != "ACTIVE" || links < 2 {
-        bail!("El producto quedó en estado {status} con {links} de 2 links de descarga");
-    }
-    let detail = if online {
-        format!("Publicado en {n} canales y visible en la tienda")
-    } else {
-        format!("Publicado en {n} canales (la tienda puede tardar unos segundos en mostrarlo)")
-    };
-    ctx.step("publicar", "listo", detail, 1.0).await;
+    let url = tienda.alta(beat, input.replace).await?;
+    let url = if url.is_empty() { format!("{}/beats/{handle}", settings.store_url.trim_end_matches('/')) } else { url };
+    let u = url.clone();
+    ctx.update(move |j| { j.product_url = u; j.admin_url = String::new(); }).await;
+    ctx.step("tienda", "listo", "Publicado en alexgareis.com, con miniatura y onda", 1.0).await;
     Ok(())
 }
 
@@ -892,7 +886,6 @@ mod tests {
         assert_eq!(t, "Bryant Myers x Feid Type Beat - \"esperame\" #bryantmyerstypebeat $49");
         assert_eq!(clean_tags("a, A , b,, {x}, c"), "a, b, c");
         assert_eq!(price_label("49.50"), "49.50");
-        assert_eq!(price("49").unwrap(), "49.00");
     }
 
     #[test]
@@ -910,7 +903,7 @@ mod tests {
         let mut txt = String::new();
         std::io::Read::read_to_string(&mut z.by_name("Léeme.txt").unwrap(), &mut txt).unwrap();
         assert!(txt.starts_with('\u{feff}'));
-        assert!(txt.contains("\"turn it up\"") && txt.contains("alexgareis.com/pages/descargas") && txt.contains("\r\n"));
+        assert!(txt.contains("\"turn it up\"") && txt.contains("alexgareis.com/cuenta") && txt.contains("\r\n"));
         assert!(!txt.contains("{nombre}"));
         assert!(z.by_name("beat.wav").is_ok());
         println!("{txt}");

@@ -19,8 +19,8 @@ const PASTEL = [["#fef3c7", "#92400e"], ["#fee2e2", "#991b1b"], ["#f3e8ff", "#6b
 // En la tienda: género en ámbar, mood en índigo, instrumento en menta.
 const STORE_PILL = { genero: PASTEL[0], mood: PASTEL[3], instr: PASTEL[5] };
 
-const STEP_TITLES = { archivos: "Zips", bucket: "Bucket", web: "Imagen de la tienda", shopify: "Producto", publicar: "Publicación", video: "Video", youtube: "YouTube" };
-const STEP_ORDER = ["archivos", "bucket", "web", "shopify", "publicar", "video", "youtube"];
+const STEP_TITLES = { archivos: "Zips", bucket: "Bucket", web: "Portada y miniatura", tienda: "Tienda", video: "Video", youtube: "YouTube" };
+const STEP_ORDER = ["archivos", "bucket", "web", "tienda", "video", "youtube"];
 const VIDEO_EXT = ["mp4", "mov", "webm", "mkv", "m4v"];
 const VISUAL_EXT = ["jpg", "jpeg", "png", "webp", "gif", ...VIDEO_EXT];
 const IMAGE_EXT = ["jpg", "jpeg", "png", "webp"];
@@ -157,8 +157,6 @@ function readInput() {
     generos: [...state.chips.genero],
     moods: [...state.chips.mood],
     instruments: [...state.chips.instr],
-    price_premium: $("#f-pp").value.trim(),
-    price_exclusiva: $("#f-pe").value.trim(),
     ...state.slots,
     ...publishFields(),
   };
@@ -209,8 +207,6 @@ function writeInput(d) {
   $("#f-bpm").value = d.bpm || "";
   $("#f-key").value = d.key || "";
   $("#f-artist").value = d.artist || "";
-  $("#f-pp").value = d.price_premium || state.settings?.price_premium || "49";
-  $("#f-pe").value = d.price_exclusiva || state.settings?.price_exclusiva || "125";
   state.chips = { genero: d.generos || [], mood: d.moods || [], instr: d.instruments || [] };
   const w = defaultWhen();
   $("#f-date").value = d.yt_date || w.date;
@@ -515,13 +511,13 @@ const refreshPreview = debounce(async () => {
     specs.append(pill);
   }
   const money = (v) => { const n = parseFloat(String(v).replace(",", ".")); return Number.isFinite(n) ? (Number.isInteger(n) ? n : n.toFixed(2)) : "—"; };
-  $("#stVarP").textContent = `WAV Premium — $${money(input.price_premium)} USD`;
-  $("#stVarE").textContent = `WAV + STEMS Exclusiva — $${money(input.price_exclusiva)} USD`;
+  $("#stVarP").textContent = `WAV Premium — $${money(state.settings?.price_premium)} USD`;
+  $("#stVarE").textContent = `WAV + STEMS Exclusiva — $${money(state.settings?.price_exclusiva)} USD`;
   const vis = state.slots.visual;
   metaRows($("#stMeta"), [
-    ["Imagen", !vis ? "—" : VIDEO_EXT.includes(ext(vis)) ? `gif ${state.settings?.gif_size || 600} × ${state.settings?.gif_size || 600} · se crea al publicar` : ext(vis) === "gif" ? "gif tal cual" : "imagen tal cual"],
-    ["Link", p.handle ? `/products/${p.handle}` : "—"],
-    ["Canales", "Tienda · Instagram · POS"],
+    ["Portada", !vis ? "—" : VIDEO_EXT.includes(ext(vis)) ? `gif ${state.settings?.gif_size || 600} × ${state.settings?.gif_size || 600} · se crea al publicar` : ext(vis) === "gif" ? "gif tal cual" : "imagen tal cual"],
+    ["Catálogo", vis ? "miniatura WebP de 240 px · se crea al publicar" : "—"],
+    ["Link", p.handle ? `/beats/${p.handle}` : "—"],
   ]);
 }, 150);
 
@@ -568,7 +564,7 @@ $("#moreThumbs").addEventListener("click", () => loadCandidates(thumbSeed + 1));
 /* ---------- publicar ---------- */
 
 function markInvalid(msg) {
-  const map = [["nombre", "#f-name"], ["BPM", "#f-bpm"], ["tonalidad", "#f-key"], ["artista", "#f-artist"], ["precios", "#f-pp"]];
+  const map = [["nombre", "#f-name"], ["BPM", "#f-bpm"], ["tonalidad", "#f-key"], ["artista", "#f-artist"]];
   for (const [w, sel] of map) if (msg.includes(w)) $(sel).classList.add("invalid");
   for (const [w, slot] of [["WAV", "wav"], ["stems", "stems"], ["mp3", "mp3"], ["multimedia", "visual"]]) {
     if (msg.includes(w)) $(`.file[data-slot="${slot}"]`).classList.add("need");
@@ -757,6 +753,7 @@ async function loadSettings() {
   state.settings = v.settings;
   state.ytConnected = v.yt_connected;
   state.version = v.version;
+  state.view = v;
   return v;
 }
 
@@ -768,7 +765,7 @@ async function loadSettingsForm() {
     if (!e) continue;
     if (e.type === "checkbox") e.checked = !!val; else e.value = val;
   }
-  $('[data-secret="shopify"]').placeholder = v.has_shopify_secret ? "Guardado (escribí para cambiarlo)" : "Sin cargar";
+  $('[data-secret="tienda"]').placeholder = v.tienda_de_beatstore ? "Se usa la de la app beatstore" : v.has_tienda ? "Guardada (escribí para cambiarla)" : "Sin cargar";
   $('[data-secret="r2"]').placeholder = v.has_r2_secret ? "Guardado (escribí para cambiarlo)" : "Sin cargar";
   $('[data-secret="yt"]').placeholder = v.has_yt_secret ? "Guardado (escribí para cambiarlo)" : "Sin cargar";
   $('[data-secret="notion"]').placeholder = v.has_notion ? "Guardado (escribí para cambiarlo)" : "Sin cargar";
@@ -791,7 +788,7 @@ async function saveSettingsForm(quiet) {
     else s[k] = field.value.trim();
   }
   try {
-    await invoke("save_settings", { settings: s, shopifySecret: $('[data-secret="shopify"]').value, r2Secret: $('[data-secret="r2"]').value, ytSecret: $('[data-secret="yt"]').value, notionSecret: $('[data-secret="notion"]').value, ytKey: $('[data-secret="ytkey"]').value });
+    await invoke("save_settings", { settings: s, tiendaSecret: $('[data-secret="tienda"]').value, r2Secret: $('[data-secret="r2"]').value, ytSecret: $('[data-secret="yt"]').value, notionSecret: $('[data-secret="notion"]').value, ytKey: $('[data-secret="ytkey"]').value });
     await loadSettingsForm();
     refreshPreview();
     renderPublish();
@@ -805,7 +802,7 @@ $("#testBtn").addEventListener("click", async () => {
   ul.innerHTML = "<li>Probando…</li>";
   const r = await invoke("test_connections");
   ul.innerHTML = "";
-  for (const [name, c] of [["Shopify", r.shopify], ["R2", r.r2], ["ffmpeg", r.ffmpeg]]) {
+  for (const [name, c] of [["Tienda", r.tienda], ["R2", r.r2], ["ffmpeg", r.ffmpeg]]) {
     const li = el("li", c.ok ? "ok" : null, `${name}: ${c.detail}`);
     li.title = c.detail;
     ul.append(li);
@@ -1200,7 +1197,7 @@ async function main() {
   setTimeout(() => checkUpdate(false), 2500);
 
   const s = state.settings;
-  if (!s.shop_client_id || !s.r2_account_id || !s.r2_access_key_id) toast("Falta configurar las conexiones en Ajustes");
+  if (!state.view?.has_tienda || !s.r2_account_id || !s.r2_access_key_id) toast("Falta configurar las conexiones en Ajustes");
   $("#f-name").focus();
 }
 

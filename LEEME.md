@@ -12,13 +12,12 @@ App de Windows para subir un beat de punta a punta. Cargás los datos y los arch
 
 1. Arma los zips Premium (WAV) y Exclusiva (WAV + stems) con tu nomenclatura.
 2. Sube el mp3 con tag y los zips a `beats-entregables`, y verifica que estén completos.
-3. Si el visual es un video, genera el gif liviano para la tienda.
-4. Crea el producto en Shopify con las dos licencias, los metacampos (BPM, key, género, mood, instrumentos, preview) y los links de descarga.
-5. Lo publica en todos los canales y verifica que haya quedado activo con los dos links.
-6. En paralelo, renderiza el video de YouTube (1920×1080, visual cuadrado de 1080 al centro, franjas negras, loop hasta el final del beat).
-7. Deja listos el título, la descripción y los tags, y adapta tu miniatura a 1280×720 si hace falta.
+3. Sube la portada (el GIF original; si el visual es un video, genera el gif) y una miniatura WebP animada de 240 px para el catálogo, dentro de la carpeta del beat en R2.
+4. Da de alta el beat en alexgareis.com (Cloudflare): título, BPM, tonalidad, géneros, moods, instrumentos, portada, miniatura, mp3, zips y la onda del reproductor. Queda publicado al instante y sumado al borrador de la app beatstore, así ninguna publicación lo borra.
+5. En paralelo, renderiza el video de YouTube (1920×1080, visual cuadrado de 1080 al centro, franjas negras, loop hasta el final del beat).
+6. Deja listos el título, la descripción y los tags, y adapta tu miniatura a 1280×720 si hace falta.
 
-Si algo falla (por ejemplo, se corta internet), el beat queda en **Historial** y se retoma desde el paso que falló, sin duplicar archivos ni productos.
+Si algo falla (por ejemplo, se corta internet), el beat queda en **Historial** y se retoma desde el paso que falló, sin duplicar archivos ni beats.
 
 ---
 
@@ -40,16 +39,11 @@ Windows puede mostrar el aviso de SmartScreen porque el instalador no está firm
 
 Abrí **Ajustes** en la app.
 
-### Shopify
+### Tienda
 
-1. Entrá a <https://dev.shopify.com/dashboard> con tu cuenta de la tienda.
-2. **Create app** → nombre: `Subir Beat`.
-3. En la versión de la app, en **Access scopes**, marcá:
-   `write_products`, `read_products`, `write_publications`, `read_publications`, `write_files`, `read_files`.
-4. Guardá la versión e **instalá la app en tu tienda** (`alexgareis`).
-5. En **Settings** de la app copiá el **Client ID** y el **Client secret** y pegalos en Ajustes.
+Subir Beat usa la misma clave que la app beatstore. Si la app beatstore está instalada en esta compu, la toma sola. Si no, pegala en **Ajustes → Tienda → Clave de la app**.
 
-El dominio myshopify ya viene cargado (`pc1swd-9c.myshopify.com`).
+Los precios de las licencias salen de la tienda (se cambian en la app beatstore → Producto).
 
 ### Cloudflare R2
 

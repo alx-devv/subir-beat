@@ -1,4 +1,4 @@
-//! Nomenclatura del bucket y de Shopify.
+//! Nomenclatura del bucket y de la tienda.
 
 /// "C# / Db" -> "C#", "Am" -> "Am"
 pub fn key_short(key: &str) -> String {
@@ -13,7 +13,7 @@ pub fn file_name_part(name: &str) -> String {
         .join("-")
 }
 
-/// Handle de Shopify: minúsculas, solo letras/números separados por guiones.
+/// Dirección del beat en la tienda (alexgareis.com/beats/<handle>): minúsculas, solo letras/números separados por guiones.
 pub fn handle(name: &str) -> String {
     let mut out = String::new();
     let mut dash = false;
@@ -68,6 +68,11 @@ pub fn public_url(base: &str, folder: &str, file: &str) -> String {
         utf8_percent_encode(folder, SEG),
         utf8_percent_encode(file, SEG)
     )
+}
+
+/// Dirección de una imagen de la tienda: <tienda>/media/<carpeta>/<archivo>.
+pub fn media_url(store: &str, folder: &str, file: &str) -> String {
+    public_url(&format!("{}/media", store.trim_end_matches('/')), folder, file)
 }
 
 pub fn object_key(folder: &str, file: &str) -> String {

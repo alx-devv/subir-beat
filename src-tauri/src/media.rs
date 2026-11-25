@@ -163,7 +163,7 @@ pub async fn render_youtube(
     run(a, dur, on_progress).await
 }
 
-/// Gif liviano para Shopify a partir de un video (paleta calculada para el clip).
+/// Gif liviano para la tienda a partir de un video (paleta calculada para el clip).
 pub async fn render_web_gif(
     video: &Path,
     out: &Path,
@@ -306,4 +306,27 @@ mod miniaturas {
         for p in v.iter().chain(&v2) { let (w, h) = { let d = imagesize::size(p).unwrap(); (d.width, d.height) }; assert_eq!((w, h), (1280, 720)); }
         println!("{:?}", v);
     }
+}
+
+/// Miniatura liviana para el catálogo de la tienda: WebP animado de 240 px de ancho (o fijo si la portada es una foto).
+pub async fn miniatura(origen: &Path, destino: &Path) -> Result<()> {
+    let animada = matches!(ext(origen).as_str(), "gif" | "mp4" | "webm" | "mov" | "mkv");
+    let mut c = command();
+    c.args(["-hide_banner", "-y", "-loglevel", "error", "-i"])
+        .arg(origen)
+        .args(["-vf", "scale='min(240,iw)':-2:flags=lanczos", "-an"]);
+    if animada {
+        c.args(["-c:v", "libwebp_anim", "-loop", "0", "-q:v", "75", "-compression_level", "5"]);
+    } else {
+        c.args(["-c:v", "libwebp", "-q:v", "80", "-frames:v", "1"]);
+    }
+    let out = c.arg(destino).stdout(Stdio::null()).stderr(Stdio::piped()).output().await.context("No se pudo ejecutar ffmpeg")?;
+    if !out.status.success() {
+        let e = String::from_utf8_lossy(&out.stderr);
+        bail!("ffmpeg no pudo armar la miniatura: {}", e.lines().last().unwrap_or("error desconocido"));
+    }
+    if std::fs::metadata(destino).map(|m| m.len()).unwrap_or(0) == 0 {
+        bail!("La miniatura salió vacía");
+    }
+    Ok(())
 }

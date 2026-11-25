@@ -1,3 +1,10 @@
+Versión 4.0.0
+- Sin Shopify: el beat se publica directo en alexgareis.com (Cloudflare), al instante y también en el borrador de la app beatstore, así ninguna publicación lo borra.
+- La portada se sube a la carpeta del beat junto con una miniatura WebP animada de 240 px para el catálogo, que carga mucho más rápido.
+- Calcula la onda del mp3 para que el reproductor arranque al instante.
+- La clave de la tienda se toma de la app beatstore. Los precios salen de las licencias de la tienda.
+- El link de la descripción de YouTube es alexgareis.com/beats/<beat>.
+
 Versión 3.1.0
 - Mapa de artistas (en la barra lateral): artistas de nivel intermedio de México y EE. UU. para nombrar tus type beats. Podés agregar, corregir y quitar artistas; los que quitás quedan en Descartados.
 - Lee los pedidos de "Contactos de la landing" en Notion y cuenta qué artistas te piden y desde qué país.

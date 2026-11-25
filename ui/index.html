@@ -79,16 +79,6 @@
         </div>
       </section>
 
-      <section class="card grid-2">
-        <div class="field">
-          <label for="f-pp">WAV Premium</label>
-          <div class="money"><span>$</span><input id="f-pp" inputmode="decimal"><span>USD</span></div>
-        </div>
-        <div class="field">
-          <label for="f-pe">WAV + STEMS Exclusiva</label>
-          <div class="money"><span>$</span><input id="f-pe" inputmode="decimal"><span>USD</span></div>
-        </div>
-      </section>
     </form>
 
     <aside class="col preview">
@@ -130,7 +120,7 @@
 
       <div class="pv" id="pv-st">
         <div>
-          <p class="cap">En la página del producto</p>
+          <p class="cap">En la página del beat</p>
           <div class="product">
             <div class="p-img" id="stImg"></div>
             <p class="p-title" id="stTitle">Nombre del beat</p>
@@ -170,7 +160,6 @@
       <section class="result" id="result" hidden>
         <div class="row-btns">
           <button class="btn ghost" data-open="product_url" type="button">Ver en la tienda</button>
-          <button class="btn ghost" data-open="admin_url" type="button">Abrir en Shopify</button>
         </div>
         <div class="card yt">
           <div class="yt-head">
@@ -236,13 +225,12 @@
       <header class="head"><h1 class="title">Ajustes</h1></header>
 
       <section class="card set">
-        <h2>Shopify</h2>
+        <h2>Tienda</h2>
         <div class="grid-2">
-          <div class="field"><label for="s-shop">Dominio myshopify</label><input id="s-shop" name="shop_domain"></div>
-          <div class="field"><label for="s-store">URL pública de la tienda</label><input id="s-store" name="store_url"></div>
-          <div class="field"><label for="s-cid">Client ID</label><input id="s-cid" name="shop_client_id"></div>
-          <div class="field"><label for="s-csec">Client secret</label><input id="s-csec" type="password" data-secret="shopify" placeholder="Sin cargar"></div>
+          <div class="field"><label for="s-store">Dirección de la tienda</label><input id="s-store" name="store_url"></div>
+          <div class="field"><label for="s-tienda">Clave de la app</label><input id="s-tienda" type="password" data-secret="tienda" placeholder="Sin cargar"></div>
         </div>
+        <p class="help">Es la misma clave de la app beatstore. Si la app beatstore está instalada en esta compu, Subir Beat la usa sola y no hace falta cargarla. Los precios salen de las licencias de la tienda.</p>
       </section>
 
       <section class="card set">
@@ -311,9 +299,7 @@
         </div>
         <label class="check"><input type="checkbox" name="keep_zips"> Guardar una copia de los zips después de subirlos</label>
         <div class="grid-3">
-          <div class="field"><label for="s-pp">Premium (USD)</label><input id="s-pp" name="price_premium" inputmode="decimal"></div>
-          <div class="field"><label for="s-pe">Exclusiva (USD)</label><input id="s-pe" name="price_exclusiva" inputmode="decimal"></div>
-          <div class="field"><label for="s-gs">Gif de la tienda (px)</label><input id="s-gs" name="gif_size" inputmode="numeric"></div>
+          <div class="field"><label for="s-gs">Gif desde un video (px)</label><input id="s-gs" name="gif_size" inputmode="numeric"></div>
         </div>
       </section>
 
@@ -337,7 +323,7 @@
 <div class="modal-bg" id="dupModal" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="dupTitle">
     <h2 id="dupTitle">Ya hay un beat con ese nombre</h2>
-    <p id="dupText">En la tienda ya existe este producto. Podés reemplazarlo con lo que cargaste o cambiarle el nombre al beat nuevo.</p>
+    <p id="dupText">En la tienda ya existe un beat con ese nombre. Podés reemplazarlo con lo que cargaste o cambiarle el nombre al beat nuevo.</p>
     <div class="modal-actions">
       <button type="button" class="btn ghost" id="dupRename">Cambiar nombre</button>
       <button type="button" class="btn accent" id="dupReplace">Reemplazar</button>

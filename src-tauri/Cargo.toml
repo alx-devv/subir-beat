@@ -1,6 +1,6 @@
 [package]
 name = "subir-beat"
-version = "3.1.0"
+version = "4.0.0"
 description = "Subir un beat de punta a punta: bucket, Shopify y YouTube"
 authors = ["Alex Gareis"]
 edition = "2021"
@@ -33,6 +33,7 @@ rustfft = "6"
 sha2 = "0.10"
 base64 = "0.22"
 getrandom = "0.2"
+symphonia = { version = "0.5", default-features = false, features = ["mp3"] }
 regex = { version = "1", default-features = false, features = ["std", "unicode-case", "unicode-perl"] }
 
 [target.'cfg(windows)'.dependencies]

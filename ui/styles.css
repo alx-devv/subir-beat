@@ -393,3 +393,5 @@ details.map-extra summary { cursor: pointer; color: var(--ink-2); }
 .sug-card .cap-row { margin-bottom: 8px; }
 .map-bar .map-search { width: 220px; flex: none; }
 .art-pop { left: auto; right: 0; width: max(100%, 340px); }
+
+.set .grid-2 + .help { margin-top: 12px; }

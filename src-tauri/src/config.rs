@@ -6,11 +6,9 @@ const KEYRING_SERVICE: &str = "subir-beat";
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct Settings {
-    // Shopify
-    pub shop_domain: String,
-    pub shop_client_id: String,
+    // Tienda (alexgareis.com)
     pub store_url: String,
-    pub vendor: String,
+    /// Últimos precios publicados de las licencias (los trae la tienda): se usan en {premium} y {exclusiva}.
     pub price_premium: String,
     pub price_exclusiva: String,
     // R2
@@ -50,10 +48,7 @@ impl Default for Settings {
     fn default() -> Self {
         let output_dir = dirs_videos().join("Beats subidos").to_string_lossy().to_string();
         Self {
-            shop_domain: "pc1swd-9c.myshopify.com".into(),
-            shop_client_id: String::new(),
             store_url: "https://alexgareis.com".into(),
-            vendor: "Mi tienda".into(),
             price_premium: "49".into(),
             price_exclusiva: "125".into(),
             r2_account_id: String::new(),
@@ -73,7 +68,7 @@ impl Default for Settings {
             yt_title_lower: true,
             notion_db_id: "4b320e67-6e02-472b-9fe0-b63904794a12".into(),
             yt_description: DEFAULT_DESCRIPTION.into(),
-            downloads_url: "https://alexgareis.com/pages/descargas".into(),
+            downloads_url: "https://alexgareis.com/cuenta".into(),
             readme_premium: README_PREMIUM.into(),
             readme_exclusiva: README_EXCLUSIVA.into(),
             yt_tags: "{artista} type beat, {artista} instrumental, {genero} type beat, {genero} beat, beat {mood}, instrumental {genero}, prod alex gareis, alex gareis".into(),
@@ -146,6 +141,10 @@ pub fn load(config_dir: &PathBuf) -> Settings {
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
     s.downloads_url = with_scheme(&s.downloads_url);
+    // La página de descargas de Shopify ahora es "Mis descargas" del sitio nuevo.
+    if s.downloads_url.trim_end_matches('/').ends_with("alexgareis.com/pages/descargas") {
+        s.downloads_url = "https://alexgareis.com/cuenta".into();
+    }
     if s.yt_title == OLD_TITLE {
         s.yt_title = DEFAULT_TITLE.into();
     }
@@ -172,7 +171,7 @@ pub fn save(config_dir: &PathBuf, s: &Settings) -> anyhow::Result<()> {
 }
 
 // Secretos: guardados en el Administrador de credenciales de Windows.
-pub const SECRET_SHOPIFY: &str = "shopify_client_secret";
+pub const SECRET_TIENDA: &str = "clave_tienda";
 pub const SECRET_R2: &str = "r2_secret_access_key";
 pub const SECRET_YT_CLIENT: &str = "youtube_client_secret";
 pub const SECRET_YT_REFRESH: &str = "youtube_refresh_token";
@@ -185,6 +184,18 @@ pub fn get_secret(name: &str) -> Option<String> {
         .get_password()
         .ok()
         .filter(|s| !s.is_empty())
+}
+
+/// Clave de la tienda: la propia o, si no hay, la de la app beatstore (es la misma clave).
+pub fn clave_tienda() -> Option<String> {
+    get_secret(SECRET_TIENDA).or_else(|| {
+        keyring::Entry::new("beatstore", "clave_app").ok()?.get_password().ok().filter(|s| !s.is_empty())
+    })
+}
+
+/// ¿La clave viene de la app beatstore (y no está cargada en Subir Beat)?
+pub fn clave_tienda_de_beatstore() -> bool {
+    get_secret(SECRET_TIENDA).is_none() && clave_tienda().is_some()
 }
 
 pub fn set_secret(name: &str, value: &str) -> anyhow::Result<()> {

@@ -4,7 +4,8 @@ mod job;
 mod media;
 mod naming;
 mod r2;
-mod shopify;
+mod onda;
+mod tienda;
 mod youtube;
 mod artists;
 
@@ -31,7 +32,9 @@ fn data_dir(app: &AppHandle) -> PathBuf {
 #[derive(Serialize)]
 struct SettingsView {
     settings: Settings,
-    has_shopify_secret: bool,
+    has_tienda: bool,
+    /// La clave de la tienda se toma de la app beatstore.
+    tienda_de_beatstore: bool,
     has_r2_secret: bool,
     has_yt_secret: bool,
     has_notion: bool,
@@ -44,7 +47,8 @@ struct SettingsView {
 fn get_settings(app: AppHandle) -> SettingsView {
     SettingsView {
         settings: config::load(&config_dir(&app)),
-        has_shopify_secret: config::get_secret(config::SECRET_SHOPIFY).is_some(),
+        has_tienda: config::clave_tienda().is_some(),
+        tienda_de_beatstore: config::clave_tienda_de_beatstore(),
         has_r2_secret: config::get_secret(config::SECRET_R2).is_some(),
         has_yt_secret: config::get_secret(config::SECRET_YT_CLIENT).is_some(),
         has_notion: config::get_secret(config::SECRET_NOTION).is_some(),
@@ -58,15 +62,15 @@ fn get_settings(app: AppHandle) -> SettingsView {
 fn save_settings(
     app: AppHandle,
     settings: Settings,
-    shopify_secret: Option<String>,
+    tienda_secret: Option<String>,
     r2_secret: Option<String>,
     yt_secret: Option<String>,
     notion_secret: Option<String>,
     yt_key: Option<String>,
 ) -> Res<()> {
     config::save(&config_dir(&app), &settings).map_err(err)?;
-    if let Some(s) = shopify_secret.filter(|s| !s.is_empty()) {
-        config::set_secret(config::SECRET_SHOPIFY, s.trim()).map_err(err)?;
+    if let Some(s) = tienda_secret.filter(|s| !s.is_empty()) {
+        config::set_secret(config::SECRET_TIENDA, s.trim()).map_err(err)?;
     }
     if let Some(s) = r2_secret.filter(|s| !s.is_empty()) {
         config::set_secret(config::SECRET_R2, s.trim()).map_err(err)?;
@@ -172,7 +176,7 @@ struct Check {
 
 #[derive(Serialize)]
 struct Checks {
-    shopify: Check,
+    tienda: Check,
     r2: Check,
     ffmpeg: Check,
 }
@@ -182,14 +186,16 @@ async fn test_connections(app: AppHandle) -> Checks {
     let s = config::load(&config_dir(&app));
     let http = reqwest::Client::new();
 
-    let shopify = match shopify::Shopify::new(
-        &s.shop_domain,
-        &s.shop_client_id,
-        &config::get_secret(config::SECRET_SHOPIFY).unwrap_or_default(),
-        http.clone(),
-    ) {
-        Ok(sh) => match sh.test().await {
-            Ok(name) => Check { ok: true, detail: format!("Conectado a {name}") },
+    let tienda = match tienda::Tienda::new(&s.store_url, config::clave_tienda(), http.clone()) {
+        Ok(t) => match t.probar().await {
+            Ok(()) => Check {
+                ok: true,
+                detail: format!(
+                    "Conectado a {}{}",
+                    s.store_url.trim_start_matches("https://").trim_end_matches('/'),
+                    if config::clave_tienda_de_beatstore() { " (con la clave de la app beatstore)" } else { "" }
+                ),
+            },
             Err(e) => Check { ok: false, detail: format!("{e:#}") },
         },
         Err(e) => Check { ok: false, detail: e.to_string() },
@@ -214,7 +220,7 @@ async fn test_connections(app: AppHandle) -> Checks {
         _ => Check { ok: false, detail: "No se encontró ffmpeg".into() },
     };
 
-    Checks { shopify, r2, ffmpeg }
+    Checks { tienda, r2, ffmpeg }
 }
 
 #[tauri::command]
@@ -242,8 +248,13 @@ fn preview(app: AppHandle, input: BeatInput) -> Preview {
     let s = config::load(&config_dir(&app));
     let n = naming::names(&input.name, input.bpm, &input.key);
     let handle = naming::handle(&input.name);
-    let product_url = format!("{}/products/{}", s.store_url.trim_end_matches('/'), handle);
+    let product_url = format!("{}/beats/{}", s.store_url.trim_end_matches('/'), handle);
     let store = s.store_url.trim_end_matches('/');
+    let mut input = input;
+    if input.price_premium.is_empty() {
+        input.price_premium = s.price_premium.clone();
+        input.price_exclusiva = s.price_exclusiva.clone();
+    }
     Preview {
         folder: n.folder,
         mp3: n.mp3,
@@ -404,7 +415,7 @@ async fn artist_opportunity(app: AppHandle, name: String) -> Res<artists::Opport
 
 #[derive(Serialize)]
 struct Preflight {
-    /// Ya hay un producto con ese nombre en la tienda.
+    /// Ya hay un beat con ese nombre en la tienda.
     exists: bool,
     product_url: String,
 }
@@ -416,18 +427,22 @@ async fn preflight(app: AppHandle, input: BeatInput) -> Res<Preflight> {
     let settings = config::load(&config_dir(&app));
     let handle = naming::handle(&input.name);
     let http = reqwest::Client::new();
-    let shop = shopify::Shopify::new(
-        &settings.shop_domain,
-        &settings.shop_client_id,
-        &config::get_secret(config::SECRET_SHOPIFY).unwrap_or_default(),
-        http,
-    )
-    .map_err(err)?;
-    let exists = shop
-        .product_id_by_handle(&handle)
+    let t = tienda::Tienda::new(&settings.store_url, config::clave_tienda(), http).map_err(err)?;
+    let c = t
+        .consultar(&handle)
         .await
-        .map_err(|e| format!("No se pudo conectar con Shopify: {e:#}. Revisá Ajustes → Probar conexiones."))?
-        .is_some();
+        .map_err(|e| format!("No se pudo conectar con la tienda: {e:#}. Revisá Ajustes → Probar conexiones."))?;
+    let exists = c.existe;
+    // Guarda los precios publicados para la vista previa de la descripción
+    if let (Some(p), Some(e)) = (c.premium, c.exclusiva) {
+        let mut s = config::load(&config_dir(&app));
+        let (pp, pe) = (tienda::precio_texto(p), tienda::precio_texto(e));
+        if s.price_premium != pp || s.price_exclusiva != pe {
+            s.price_premium = pp;
+            s.price_exclusiva = pe;
+            let _ = config::save(&config_dir(&app), &s);
+        }
+    }
     if settings.r2_account_id.trim().is_empty() || config::get_secret(config::SECRET_R2).is_none() {
         return Err("Falta configurar el bucket (Cloudflare R2) en Ajustes".into());
     }
@@ -436,7 +451,7 @@ async fn preflight(app: AppHandle, input: BeatInput) -> Res<Preflight> {
         return Err(format!("La página de descargas ({url}) no responde. Revisala en Ajustes."));
     }
     let store = settings.store_url.trim_end_matches('/');
-    Ok(Preflight { exists, product_url: format!("{store}/products/{handle}") })
+    Ok(Preflight { exists, product_url: format!("{store}/beats/{handle}") })
 }
 
 /// Fotogramas para elegir la miniatura de YouTube.
@@ -463,7 +478,8 @@ fn start_job(app: AppHandle, input: BeatInput) -> Res<String> {
             return Err("Ese beat ya se está subiendo".into());
         }
         // Si quedó uno a medias con el mismo nombre y no se pidió reemplazar, se retoma desde ahí.
-        if !prev.product_id.is_empty() && !j.input.replace && !prev.steps.values().all(|s| s.status == "listo") {
+        let empezado = prev.steps.get("bucket").map(|s| s.status == "listo").unwrap_or(false) || !prev.product_id.is_empty();
+        if empezado && !j.input.replace && !prev.steps.values().all(|s| s.status == "listo") {
             return Err("Ese beat quedó a medias: abrilo en \"Sin terminar\" y tocá Retomar.".into());
         }
     }
