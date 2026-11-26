@@ -677,6 +677,7 @@ function renderJob() {
     const img = $("#jobThumb");
     img.hidden = !j.thumbnail;
     if (j.thumbnail) img.src = `${src(j.thumbnail)}?v=${j.created}`;
+    $("#saveThumb").hidden = !j.thumbnail;
     $("#copyYtLink").hidden = !j.yt_auto;
     $("#uploadYt").hidden = j.yt_auto || !state.ytConnected;
     $("#revealVideo").hidden = !!j.yt_auto;
@@ -722,6 +723,20 @@ $$("[data-copy]").forEach((b) => b.addEventListener("click", async () => {
   b.classList.add("done");
   setTimeout(() => { b.textContent = "Copiar"; b.classList.remove("done"); }, 1400);
 }));
+ // Copia de la miniatura de YouTube (1280×720, con las franjas negras), donde elijas
+$("#saveThumb").addEventListener("click", async () => {
+  const j = state.job;
+  if (!j?.thumbnail) return;
+  const e = ext(j.thumbnail) || "jpg";
+  const nombre = `${(j.input?.name || "beat").trim()} - miniatura.${e}`.replace(/[\\/:*?"<>|]/g, "");
+  const destino = await T.dialog.save({ defaultPath: nombre, filters: [{ name: "Imagen", extensions: [e] }] });
+  if (!destino) return;
+  try {
+    await invoke("guardar_miniatura", { origen: j.thumbnail, destino });
+    toast("Miniatura guardada");
+  } catch (err) { toast(String(err)); }
+});
+
 $("#revealVideo").addEventListener("click", () => { if (state.job?.video) T.opener.revealItemInDir(state.job.video); });
 $("#copyYtLink").addEventListener("click", async () => {
   if (!state.job?.yt_url) return;

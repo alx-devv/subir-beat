@@ -43,6 +43,22 @@ struct SettingsView {
     version: String,
 }
 
+/// Guarda una copia de la miniatura de YouTube (1280×720, con las franjas negras) donde elija el usuario.
+#[tauri::command]
+fn guardar_miniatura(origen: String, destino: String) -> Result<(), String> {
+    let o = std::path::Path::new(&origen);
+    let ext = o.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    if !matches!(ext.as_str(), "jpg" | "jpeg" | "png") || !o.is_file() {
+        return Err("No encuentro la miniatura de este beat.".into());
+    }
+    let mut d = std::path::PathBuf::from(&destino);
+    if d.extension().is_none() {
+        d.set_extension(&ext);
+    }
+    std::fs::copy(o, &d).map_err(|e| format!("No se pudo guardar la miniatura: {e}"))?;
+    Ok(())
+}
+
 #[tauri::command]
 fn get_settings(app: AppHandle) -> SettingsView {
     SettingsView {
@@ -602,6 +618,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            guardar_miniatura,
             get_settings,
             save_settings,
             test_connections,

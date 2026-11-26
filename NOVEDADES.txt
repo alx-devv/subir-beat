@@ -1,3 +1,6 @@
+Versión 4.0.1
+- Botón "Descargar miniatura" debajo de la miniatura de YouTube: guarda la imagen de 1280×720 con las franjas negras donde elijas.
+
 Versión 4.0.0
 - Sin Shopify: el beat se publica directo en alexgareis.com (Cloudflare), al instante y también en el borrador de la app beatstore, así ninguna publicación lo borra.
 - La portada se sube a la carpeta del beat junto con una miniatura WebP animada de 240 px para el catálogo, que carga mucho más rápido.
