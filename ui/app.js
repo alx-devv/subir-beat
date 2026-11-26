@@ -560,6 +560,7 @@ function setThumb(p) {
   refreshPreview();
 }
 $("#moreThumbs").addEventListener("click", () => loadCandidates(thumbSeed + 1));
+$("#saveThumbPick").addEventListener("click", () => guardarMiniatura(state.slots.thumbnail, $("#f-name").value));
 
 /* ---------- publicar ---------- */
 
@@ -724,9 +725,11 @@ $$("[data-copy]").forEach((b) => b.addEventListener("click", async () => {
   setTimeout(() => { b.textContent = "Copiar"; b.classList.remove("done"); }, 1400);
 }));
  // Copia de la miniatura de YouTube (1280×720, con las franjas negras), donde elijas
-$("#saveThumb").addEventListener("click", async () => {
-  const j = state.job;
-  if (!j?.thumbnail) return;
+$("#saveThumb").addEventListener("click", () => guardarMiniatura(state.job?.thumbnail, state.job?.input?.name));
+
+async function guardarMiniatura(origen, beat) {
+  if (!origen) return toast("Elegí una miniatura primero");
+  const j = { thumbnail: origen, input: { name: beat } };
   const e = ext(j.thumbnail) || "jpg";
   const nombre = `${(j.input?.name || "beat").trim()} - miniatura.${e}`.replace(/[\\/:*?"<>|]/g, "");
   const destino = await T.dialog.save({ defaultPath: nombre, filters: [{ name: "Imagen", extensions: [e] }] });
@@ -735,7 +738,7 @@ $("#saveThumb").addEventListener("click", async () => {
     await invoke("guardar_miniatura", { origen: j.thumbnail, destino });
     toast("Miniatura guardada");
   } catch (err) { toast(String(err)); }
-});
+}
 
 $("#revealVideo").addEventListener("click", () => { if (state.job?.video) T.opener.revealItemInDir(state.job.video); });
 $("#copyYtLink").addEventListener("click", async () => {
