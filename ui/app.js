@@ -478,6 +478,7 @@ const refreshPreview = debounce(async () => {
   $("#ytTitleV").textContent = title;
   $("#ytDur").textContent = fmtTime(state.duration);
   $("#ytThumb").style.backgroundImage = state.slots.thumbnail ? `url("${src(state.slots.thumbnail)}")` : "";
+  $("#saveThumbPick").hidden = !state.slots.thumbnail;
   mountVisual($("#playerVisual"), state.slots.visual);
   const lines = (p.description || "").split("\n").slice(0, 3).join("\n");
   const desc = $("#ytDesc");

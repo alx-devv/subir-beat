@@ -397,3 +397,5 @@ details.map-extra summary { cursor: pointer; color: var(--ink-2); }
 .set .grid-2 + .help { margin-top: 12px; }
 
 .yt-thumb-col { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+
+.save-thumb { margin-top: 6px; display: inline-block; }

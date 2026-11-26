@@ -1,5 +1,5 @@
-Versión 4.0.2
-- "Guardar miniatura" junto a los fotogramas para elegir y debajo de la miniatura de YouTube: guarda la imagen de 1280×720 con las franjas negras donde elijas.
+Versión 4.0.3
+- "Guardar miniatura" debajo de la miniatura de la búsqueda (con foto o con video) y debajo de la miniatura de YouTube al terminar: guarda la imagen de 1280×720 con las franjas negras.
 
 Versión 4.0.0
 - Sin Shopify: el beat se publica directo en alexgareis.com (Cloudflare), al instante y también en el borrador de la app beatstore, así ninguna publicación lo borra.
